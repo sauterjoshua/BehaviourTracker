@@ -1,0 +1,11 @@
+# Lokale Konfiguration mit Projekt-URL/Keys – nicht committen
+config.js
+.env
+.env.local
+
+# Tooling
+node_modules/
+.DS_Store
+*.log
+.idea/
+.vscode/

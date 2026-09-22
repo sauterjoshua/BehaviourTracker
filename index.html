@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Kanban-Board fuer Unterrichtsverhalten – Klassen, Unterrichte und Spaltenzeiten.">
+  <title>BehaviourTracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📋</text></svg>">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar" id="topbar" hidden>
+    <button class="topbar__back" id="backBtn" type="button" hidden aria-label="Zurueck">&#8592;</button>
+    <h1 class="topbar__title" id="topbarTitle">BehaviourTracker</h1>
+    <div class="topbar__actions">
+      <span class="topbar__user" id="topbarUser"></span>
+      <button class="btn btn--ghost" id="logoutBtn" type="button">Abmelden</button>
+    </div>
+  </header>
+
+  <main id="app" class="app">
+    <div class="loading">Wird geladen&hellip;</div>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="https://js.hcaptcha.com/1/api.js?render=explicit" async defer></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
