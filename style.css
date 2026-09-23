@@ -263,28 +263,33 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
 /* ---------------- Board ---------------- */
 
 .board {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
   gap: 1rem;
-  align-items: start;
+  align-items: stretch;
 }
 @media (max-width: 760px) {
-  .board { grid-template-columns: minmax(0, 1fr); }
+  .board { flex-direction: column; }
 }
 
 .column {
   display: flex;
   flex-direction: column;
+  /* flex-grow wird per JS proportional zur Schueleranzahl gesetzt
+     (layoutBoard() in app.js); flex-basis 0 laesst die Breite allein
+     daraus entstehen, min-width/-height sind die Untergrenze. */
+  flex: 0 1 0;
+  min-width: 12rem;
+  min-height: 8rem;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--col-links-bg);
-  min-height: 12rem;
   overflow: hidden;
 }
 .column--mitte  { background: var(--col-mitte-bg); }
 .column--rechts { background: var(--col-rechts-bg); }
 
 .column__head {
+  flex: none;
   padding: .75rem 1rem;
   font-size: 1rem;
   font-weight: 700;
@@ -297,59 +302,53 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
 
 .column__body {
   flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: .6rem;
+  /* Muss auf 0 stehen, sonst verhindert die implizite min-height:auto
+     eines Flex-Kindes das Schrumpfen und overflow-y:auto scrollt nie. */
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  justify-content: start;
   padding: .75rem;
-  min-height: 6rem;
+  gap: .6rem;
 }
 .column--dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
 .column--invalid  { opacity: .55; }
 
 .student {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: .5rem;
-  padding: .7rem .8rem;
+  justify-content: center;
+  gap: .2em;
+  padding: .4em;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow);
   cursor: grab;
   user-select: none;
+  text-align: center;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  /* font-size wird per JS gesetzt (layoutBoard() in app.js), abhaengig von
+     der berechneten Boxgroesse, nie unter der Mindestschriftgroesse. */
 }
 .student--dragging { opacity: .45; }
 .student--busy { opacity: .6; pointer-events: none; }
 
 .student__name {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -.01em;
   overflow-wrap: anywhere;
+  line-height: 1.15;
 }
 .student__timer {
   display: block;
-  font-size: .8rem;
+  font-size: .7em;
   font-weight: 500;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-.student__move {
-  flex: none;
-  width: 2.25rem;
-  height: 2.25rem;
-  font-size: 1.2rem;
-  line-height: 1;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text);
-  cursor: pointer;
-}
-.student__move:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.student__move:disabled { visibility: hidden; }
 
 /* ---------------- Auswertung ---------------- */
 

@@ -155,9 +155,85 @@ const COLUMNS = [
   { key: "mitte",  title: "Du arbeitest gut" },
   { key: "rechts", title: "Du arbeitest großartig" }
 ];
-const COLUMN_TITLE = Object.fromEntries(COLUMNS.map((c) => [c.key, c.title]));
 const columnIndex = (key) => COLUMNS.findIndex((c) => c.key === key);
 const isAdjacent = (from, to) => Math.abs(columnIndex(from) - columnIndex(to)) === 1;
+
+/* -------------------------------------------------------------------
+   Board-Layout: quadratische Schueler-Boxen, Groesse dynamisch berechnet
+   ------------------------------------------------------------------- */
+
+const BOARD_MIN_HEIGHT_PX = 320;
+const BOARD_BOTTOM_MARGIN_PX = 16;
+const BOX_GAP_PX = 10;
+const BOX_MIN_FONT_REM = 1.1;
+const BOX_FONT_RATIO = 0.22; // Schriftgroesse als Anteil der Boxgroesse
+
+/** Groesste quadratische Boxgroesse, mit der `count` Kacheln ohne
+ * Ueberlauf in width x height passen (Rasterberechnung wie bei
+ * Videokonferenz-Kachel-Layouts: alle Spaltenzahlen durchprobieren). */
+function bestSquareLayout(width, height, count, gap) {
+  let best = { size: 0, cols: 1, rows: count };
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols);
+    const size = Math.min(
+      (width - (cols - 1) * gap) / cols,
+      (height - (rows - 1) * gap) / rows
+    );
+    if (size > best.size) best = { size, cols, rows };
+  }
+  return best;
+}
+
+/** Spaltenbreiten (flex-grow) und Boxgroessen im Board neu berechnen.
+ * Muss nach jeder DOM-Aenderung des Boards sowie bei Groessenaenderungen
+ * des Containers erneut aufgerufen werden. */
+function layoutBoard(boardEl) {
+  const availableHeight = Math.max(
+    BOARD_MIN_HEIGHT_PX,
+    window.innerHeight - boardEl.getBoundingClientRect().top - BOARD_BOTTOM_MARGIN_PX
+  );
+  boardEl.style.height = `${availableHeight}px`;
+
+  const rootFontPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const minFontPx = BOX_MIN_FONT_REM * rootFontPx;
+  const minBoxPx = minFontPx / BOX_FONT_RATIO;
+
+  boardEl.querySelectorAll(".column__body").forEach((body) => {
+    const cards = body.querySelectorAll(".student");
+    const count = cards.length;
+    body.parentElement.style.flexGrow = String(count);
+    if (!count) {
+      body.style.gridTemplateColumns = "";
+      body.style.gridAutoRows = "";
+      body.style.overflowY = "";
+      return;
+    }
+
+    const cs = getComputedStyle(body);
+    const width = body.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const height = body.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (width <= 0 || height <= 0) return;
+
+    // Zuerst die Boxgroesse ohne Untergrenze ausrechnen. Wuerde die
+    // Schrift dabei die Mindestgroesse unterschreiten, Boxgroesse auf
+    // das erzwungene Minimum einfrieren und stattdessen vertikal scrollen.
+    let layout = bestSquareLayout(width, height, count, BOX_GAP_PX);
+    let overflowY = "hidden";
+    if (layout.size < minBoxPx) {
+      const size = minBoxPx;
+      const cols = Math.max(1, Math.min(count, Math.floor((width + BOX_GAP_PX) / (size + BOX_GAP_PX))));
+      layout = { size, cols, rows: Math.ceil(count / cols) };
+      overflowY = "auto";
+    }
+
+    const fontPx = Math.max(minFontPx, layout.size * BOX_FONT_RATIO);
+    body.style.gridTemplateColumns = `repeat(${layout.cols}, ${layout.size}px)`;
+    body.style.gridAutoRows = `${layout.size}px`;
+    body.style.gap = `${BOX_GAP_PX}px`;
+    body.style.overflowY = overflowY;
+    cards.forEach((card) => { card.style.fontSize = `${fontPx}px`; });
+  });
+}
 
 /* -------------------------------------------------------------------
    Supabase-Client
@@ -857,6 +933,17 @@ async function renderBoard(lessonId) {
 
   appEl.replaceChildren(h("div", { class: "stack" }, headerEl, boardEl));
 
+  // Spaltenbreiten und Boxgroessen haengen von der verfuegbaren Flaeche ab –
+  // bei Groessenaenderungen des Containers (Fenster, Zoom, Orientierung)
+  // neu berechnen. Aenderungen durch Drag & Drop loest draw() selbst aus.
+  const boardResizeObserver = new ResizeObserver(() => layoutBoard(boardEl));
+  boardResizeObserver.observe(boardEl);
+  registerCleanup(() => boardResizeObserver.disconnect());
+
+  const onWindowResize = () => layoutBoard(boardEl);
+  window.addEventListener("resize", onWindowResize);
+  registerCleanup(() => window.removeEventListener("resize", onWindowResize));
+
   async function refresh() {
     const [rows, openLogs] = await Promise.all([
       api.boardRows(lessonId),
@@ -910,14 +997,12 @@ async function renderBoard(lessonId) {
           h("span", { class: "column__count" }, String(byColumn[column.key].length))),
         body);
     }));
+    layoutBoard(boardEl);
   }
 
   let dragFrom = null;
 
   function studentCard(row, columnKey, startedAtValue) {
-    const index = columnIndex(columnKey);
-    const left = COLUMNS[index - 1]?.key ?? null;
-    const right = COLUMNS[index + 1]?.key ?? null;
     const name = row.students?.name ?? "Unbekannt";
 
     const timerEl = h("span", { class: "student__timer" }, "–");
@@ -928,17 +1013,8 @@ async function renderBoard(lessonId) {
       draggable: lesson.ended_at ? "false" : "true",
       dataset: { studentId: row.student_id, column: columnKey }
     },
-      h("button", {
-        class: "student__move", type: "button", disabled: !left || Boolean(lesson.ended_at),
-        "aria-label": left ? `${name} nach „${COLUMN_TITLE[left]}“ verschieben` : "",
-        onclick: () => left && move(row.student_id, left)
-      }, "\u2190"),
-      h("div", { class: "student__name" }, name, timerEl),
-      h("button", {
-        class: "student__move", type: "button", disabled: !right || Boolean(lesson.ended_at),
-        "aria-label": right ? `${name} nach „${COLUMN_TITLE[right]}“ verschieben` : "",
-        onclick: () => right && move(row.student_id, right)
-      }, "\u2192"));
+      h("div", { class: "student__name" }, name),
+      timerEl);
 
     card.addEventListener("dragstart", (event) => {
       if (lesson.ended_at) { event.preventDefault(); return; }
