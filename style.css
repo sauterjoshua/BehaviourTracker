@@ -183,6 +183,30 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
 .row--form { flex-wrap: nowrap; }
 .row--form .input { flex: 1 1 auto; min-width: 0; }
 
+/* Header der sortierten Ansicht: Grid statt Flex, damit die mittlere
+   Zaehlung unabhaengig von der (ungleichen) Breite von Klassenname und
+   Button-Text exakt mittig zur ganzen Zeile bleibt, statt nur mittig im
+   Restplatz zwischen den beiden zu sitzen. */
+.board-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: .6rem;
+}
+.board-header > :last-child { justify-self: end; }
+@media (max-width: 759px) {
+  .board-header { grid-template-columns: 1fr; }
+  .board-header > :last-child { justify-self: stretch; }
+}
+
+.board-stats {
+  justify-self: center;
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .error-box {
   margin: 0 0 .85rem;
   padding: .6rem .8rem;

@@ -146,6 +146,13 @@ const COLUMNS = [
   { key: "mitte",  title: "Du arbeitest gut" },
   { key: "rechts", title: "Du arbeitest großartig" }
 ];
+// Singular-/Pluralformen fuer die Live-Zaehlung in der sortierten Ansicht
+// (z. B. "1 kann mehr | 5 arbeiten gut | 2 arbeiten großartig").
+const STATE_LABELS = {
+  links:  { one: "kann mehr",       many: "können mehr" },
+  mitte:  { one: "arbeitet gut",    many: "arbeiten gut" },
+  rechts: { one: "arbeitet großartig", many: "arbeiten großartig" }
+};
 const columnIndex = (key) => COLUMNS.findIndex((c) => c.key === key);
 const isAdjacent = (from, to) => Math.abs(columnIndex(from) - columnIndex(to)) === 1;
 
@@ -960,7 +967,8 @@ async function renderBoard(lessonId) {
 
   const sorted = lesson.mode === "sortiert";
   const boardEl = h("div", { class: sorted ? "sorted-grid" : "board" });
-  const headerEl = h("div", { class: "card row" });
+  const headerEl = h("div", { class: sorted ? "card board-header" : "card row" });
+  const statsEl = h("div", { class: "board-stats" });
   let busy = false;
 
   appEl.replaceChildren(h("div", { class: "stack" }, headerEl, boardEl));
@@ -991,6 +999,20 @@ async function renderBoard(lessonId) {
       (a.students?.name ?? "").localeCompare(b.students?.name ?? "", "de"));
     boardEl.replaceChildren(...items.map((row) => studentTile(row)));
     layoutStudentGrid(boardEl);
+    updateStats(rows);
+  }
+
+  function updateStats(rows) {
+    const counts = { links: 0, mitte: 0, rechts: 0 };
+    for (const row of rows) {
+      if (row.col in counts) counts[row.col]++;
+    }
+    statsEl.textContent = COLUMNS
+      .map((c) => {
+        const n = counts[c.key];
+        return `${n} ${n === 1 ? STATE_LABELS[c.key].one : STATE_LABELS[c.key].many}`;
+      })
+      .join(" | ");
   }
 
   function drawKanban(rows) {
@@ -1122,12 +1144,12 @@ async function renderBoard(lessonId) {
           async () => { await api.endLesson(lessonId); await renderBoard(lessonId); toast("Unterricht beendet."); },
           "Beenden") }, "Unterricht beenden");
 
-    headerEl.replaceChildren(
-      h("div", { style: "flex:1 1 auto;min-width:0" },
-        h("strong", {}, lesson.classes?.name ?? "Klasse"),
-        h("span", { class: "list__sub" },
-          `${formatDate(lesson.date)}${lesson.ended_at ? " · beendet" : " · laeuft"}`)),
-      actions);
+    const info = h("div", { style: sorted ? "min-width:0" : "flex:1 1 auto;min-width:0" },
+      h("strong", {}, lesson.classes?.name ?? "Klasse"),
+      h("span", { class: "list__sub" },
+        `${formatDate(lesson.date)}${lesson.ended_at ? " · beendet" : " · laeuft"}`));
+
+    headerEl.replaceChildren(...(sorted ? [info, statsEl, actions] : [info, actions]));
   }
 
   drawHeader();
