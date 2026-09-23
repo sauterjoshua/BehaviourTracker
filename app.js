@@ -240,6 +240,35 @@ function layoutBoard(boardEl) {
   });
 }
 
+/** Wie layoutBoard(), aber fuer die "Sortierte Ansicht": ein einzelnes
+ * Raster ueber ALLE Schueler statt drei Spalten. Anders als im Kanban-Board
+ * gibt es hier keinen Scroll-Fallback: Prioritaet ist, dass alle Schueler
+ * gleichzeitig sichtbar bleiben, notfalls auf Kosten der Mindestschriftgroesse. */
+function layoutStudentGrid(gridEl) {
+  const availableHeight = Math.max(
+    BOARD_MIN_HEIGHT_PX,
+    window.innerHeight - gridEl.getBoundingClientRect().top - BOARD_BOTTOM_MARGIN_PX
+  );
+  gridEl.style.height = `${availableHeight}px`;
+
+  const cards = gridEl.querySelectorAll(".student");
+  const count = cards.length;
+  if (!count) return;
+
+  const cs = getComputedStyle(gridEl);
+  const width = gridEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const height = gridEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  if (width <= 0 || height <= 0) return;
+
+  const layout = bestSquareLayout(width, height, count, BOX_GAP_PX);
+  const fontPx = Math.max(1, layout.size * BOX_FONT_RATIO);
+
+  gridEl.style.gridTemplateColumns = `repeat(${layout.cols}, ${layout.size}px)`;
+  gridEl.style.gridAutoRows = `${layout.size}px`;
+  gridEl.style.gap = `${BOX_GAP_PX}px`;
+  cards.forEach((card) => { card.style.fontSize = `${fontPx}px`; });
+}
+
 /* -------------------------------------------------------------------
    Supabase-Client
    ------------------------------------------------------------------- */
@@ -488,7 +517,7 @@ const api = {
 
   async getLesson(id) {
     return unwrap(await sb.from("lessons")
-      .select("id, name, date, ended_at, class_id, classes(name)")
+      .select("id, name, date, ended_at, class_id, mode, classes(name)")
       .eq("id", id).maybeSingle());
   },
 
@@ -508,8 +537,8 @@ const api = {
       .order("lesson_date", { ascending: false }));
   },
 
-  async startLesson(classId) {
-    return unwrap(await sb.rpc("start_lesson", { p_class_id: classId }));
+  async startLesson(classId, mode) {
+    return unwrap(await sb.rpc("start_lesson", { p_class_id: classId, p_mode: mode }));
   },
 
   async moveStudent(lessonId, studentId, column) {
@@ -901,9 +930,12 @@ async function renderNewLesson() {
 }
 
 async function startLessonFor(classId, className) {
+  const mode = await pickLessonMode();
+  if (!mode) return;
+
   toast(`Unterricht fuer ${className} wird gestartet…`);
   try {
-    const lessonId = await api.startLesson(classId);
+    const lessonId = await api.startLesson(classId, mode);
     navigate(`/lessons/${lessonId}`);
   } catch (error) {
     showError(error, "Unterricht konnte nicht gestartet werden.");
@@ -926,22 +958,24 @@ async function renderBoard(lessonId) {
   if (!lesson) { toast("Unterricht nicht gefunden.", "error"); return navigate("/lessons"); }
   setChrome({ title: lesson.name, back: "/lessons" });
 
-  const boardEl = h("div", { class: "board" });
+  const sorted = lesson.mode === "sortiert";
+  const boardEl = h("div", { class: sorted ? "sorted-grid" : "board" });
   const headerEl = h("div", { class: "card row" });
   let busy = false;
 
   appEl.replaceChildren(h("div", { class: "stack" }, headerEl, boardEl));
 
-  // Spaltenbreiten und Boxgroessen haengen von der verfuegbaren Flaeche ab –
-  // bei Groessenaenderungen des Containers (Fenster, Zoom, Orientierung)
-  // neu berechnen. Aenderungen durch Drag & Drop loest draw() selbst aus.
-  const boardResizeObserver = new ResizeObserver(() => layoutBoard(boardEl));
+  const layout = () => (sorted ? layoutStudentGrid(boardEl) : layoutBoard(boardEl));
+
+  // Groesse und Grid haengen von der verfuegbaren Flaeche ab – bei
+  // Groessenaenderungen des Containers (Fenster, Zoom, Orientierung) neu
+  // berechnen. Aenderungen durch Drag & Drop bzw. Klick loest draw() selbst aus.
+  const boardResizeObserver = new ResizeObserver(layout);
   boardResizeObserver.observe(boardEl);
   registerCleanup(() => boardResizeObserver.disconnect());
 
-  const onWindowResize = () => layoutBoard(boardEl);
-  window.addEventListener("resize", onWindowResize);
-  registerCleanup(() => window.removeEventListener("resize", onWindowResize));
+  window.addEventListener("resize", layout);
+  registerCleanup(() => window.removeEventListener("resize", layout));
 
   async function refresh() {
     const rows = await api.boardRows(lessonId);
@@ -949,6 +983,17 @@ async function renderBoard(lessonId) {
   }
 
   function draw(rows) {
+    if (sorted) drawSorted(rows); else drawKanban(rows);
+  }
+
+  function drawSorted(rows) {
+    const items = [...rows].sort((a, b) =>
+      (a.students?.name ?? "").localeCompare(b.students?.name ?? "", "de"));
+    boardEl.replaceChildren(...items.map((row) => studentTile(row)));
+    layoutStudentGrid(boardEl);
+  }
+
+  function drawKanban(rows) {
     const byColumn = { links: [], mitte: [], rechts: [] };
     for (const row of rows) {
       if (row.col in byColumn) byColumn[row.col].push(row);
@@ -1027,6 +1072,27 @@ async function renderBoard(lessonId) {
     });
 
     return card;
+  }
+
+  function studentTile(row) {
+    const name = row.students?.name ?? "Unbekannt";
+
+    const tile = h("div", {
+      class: "student",
+      dataset: { studentId: row.student_id, column: row.col }
+    },
+      h("div", { class: "student__name" }, name));
+
+    // Linke Haelfte der Box = einen Zustand zurueck, rechte Haelfte = vor.
+    tile.addEventListener("click", (event) => {
+      if (lesson.ended_at) return;
+      const rect = tile.getBoundingClientRect();
+      const forward = event.clientX - rect.left > rect.width / 2;
+      const target = COLUMNS[columnIndex(row.col) + (forward ? 1 : -1)]?.key;
+      if (target) move(row.student_id, target);
+    });
+
+    return tile;
   }
 
   async function move(studentId, targetColumn) {
@@ -1112,6 +1178,40 @@ function confirmDelete(message, onConfirm, confirmLabel = "Loeschen") {
   );
   document.body.append(modal);
   okBtn.focus();
+}
+
+/** Modal zur Wahl der Unterrichts-Ansicht beim Start. Liefert
+ * "kanban" | "sortiert", oder null bei Abbruch. */
+function pickLessonMode() {
+  return new Promise((resolve) => {
+    const panel = h("div", { class: "modal__panel stack" });
+    const modal = h("div", { class: "modal", role: "dialog", "aria-modal": "true" }, panel);
+
+    const close = (value) => {
+      modal.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+    const onKey = (event) => { if (event.key === "Escape") close(null); };
+
+    modal.addEventListener("click", (event) => { if (event.target === modal) close(null); });
+    document.addEventListener("keydown", onKey);
+
+    panel.append(
+      h("h2", { style: "margin-top:0" }, "Ansicht waehlen"),
+      h("p", { class: "muted small" },
+        "Kanban: Schueler per Drag & Drop durch drei Spalten bewegen. " +
+        "Sortierte Ansicht: alle Namen alphabetisch in einem Raster, " +
+        "per Antippen weiterschalten."),
+      h("div", { class: "stack" },
+        h("button", { class: "btn btn--primary", type: "button", onclick: () => close("kanban") },
+          "Kanban"),
+        h("button", { class: "btn btn--primary", type: "button", onclick: () => close("sortiert") },
+          "Sortierte Ansicht")),
+      h("button", { class: "btn", type: "button", onclick: () => close(null) }, "Abbrechen")
+    );
+    document.body.append(modal);
+  });
 }
 
 /* -------------------------------------------------------------------

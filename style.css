@@ -314,6 +314,23 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
 .column--dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
 .column--invalid  { opacity: .55; }
 
+/* ---------------- Sortierte Ansicht ---------------- */
+/* Ein einzelnes Raster ueber alle Schueler statt drei Spalten; Groesse
+   wird per JS gesetzt (layoutStudentGrid() in app.js). Zustand 0/1/2 wird
+   direkt als Boxfarbe angezeigt, da es hier keine Spaltenflaeche gibt,
+   die das sonst uebernehmen wuerde. */
+.sorted-grid {
+  display: grid;
+  align-content: start;
+  justify-content: start;
+  padding: .75rem;
+  overflow: hidden;
+}
+.sorted-grid .student { cursor: pointer; }
+.sorted-grid .student[data-column="links"]  { background: var(--col-links-bg); }
+.sorted-grid .student[data-column="mitte"]  { background: var(--col-mitte-bg); }
+.sorted-grid .student[data-column="rechts"] { background: var(--col-rechts-bg); }
+
 .student {
   display: flex;
   flex-direction: column;
