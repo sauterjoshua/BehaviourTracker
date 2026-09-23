@@ -163,6 +163,7 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
 .btn--ghost { background: transparent; }
 .btn--danger { color: var(--danger); }
 .btn--sm { padding: .3rem .6rem; min-height: 2rem; font-size: .85rem; }
+.btn--icon { padding: .3rem; width: 2rem; }
 
 .input, select.input {
   width: 100%;

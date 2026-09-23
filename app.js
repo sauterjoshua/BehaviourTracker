@@ -48,6 +48,36 @@ function h(tag, props = {}, ...children) {
   return el;
 }
 
+/** Papierkorb-Icon als Inline-SVG. `document.createElement` erzeugt fuer
+ * "svg" kein echtes SVGElement, deshalb per createElementNS statt ueber
+ * h() gebaut. stroke="currentColor" macht es faerbbar (z. B. via
+ * .btn--danger), anders als ein farbiges Emoji-Glyph. */
+function trashIcon() {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "1.1em");
+  svg.setAttribute("height", "1.1em");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const d of [
+    "M3 6h18",
+    "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+    "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
+    "M10 11v6",
+    "M14 11v6"
+  ]) {
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
+}
+
 /** Steuerzeichen, die aus Eingaben entfernt werden. */
 const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/g;
 
@@ -528,6 +558,10 @@ const api = {
       .eq("id", id).maybeSingle());
   },
 
+  async deleteLesson(id) {
+    return unwrap(await sb.from("lessons").delete().eq("id", id));
+  },
+
   // "column" ist in Postgres reserviert; PostgREST quotet den Bezeichner
   // korrekt, wir benennen ihn hier per Alias auf "col" um.
   async boardRows(lessonId) {
@@ -881,7 +915,13 @@ async function renderLessonList() {
               `${lesson.classes?.name ?? "Klasse entfernt"} · ${formatDate(lesson.date)}`)),
           lesson.ended_at
             ? h("span", { class: "badge" }, "beendet")
-            : h("span", { class: "badge badge--live" }, "laeuft"))))
+            : h("span", { class: "badge badge--live" }, "laeuft"),
+          h("button", {
+            class: "btn btn--sm btn--danger btn--icon", type: "button", "aria-label": "Unterricht löschen",
+            onclick: () => confirmDelete(
+              `Unterricht „${lesson.name}“ wirklich loeschen? Alle erfassten Zeiten dieses Unterrichts gehen unwiderruflich verloren.`,
+              async () => { await api.deleteLesson(lesson.id); await renderLessonList(); toast("Unterricht geloescht."); })
+          }, trashIcon()))))
     : emptyView("Noch keine Unterrichte. Starte oben den ersten.");
 
   appEl.replaceChildren(
