@@ -689,10 +689,8 @@ async function renderClassDetail(classId) {
 
   const students = await api.listStudents(classId);
 
-  // autofocus greift auch beim Neuaufbau nach dem Anlegen – so laesst sich
-  // eine ganze Klassenliste ohne Mausklick eintippen.
   const nameInput = h("input", {
-    class: "input", type: "text", maxlength: "80", autofocus: true,
+    class: "input", type: "text", maxlength: "80",
     placeholder: "Name der Schuelerin / des Schuelers"
   });
   const addBtn = h("button", { class: "btn btn--primary", type: "submit" }, "Hinzufuegen");
@@ -746,6 +744,10 @@ async function renderClassDetail(classId) {
           onclick: () => startLessonFor(classId, cls.name)
         }, "Unterricht mit dieser Klasse starten")))
   );
+  // `autofocus` greift beim dynamischen Neuaufbau nach dem Anlegen nicht
+  // zuverlaessig – deshalb explizit fokussieren, damit sich eine ganze
+  // Klassenliste ohne Mausklick eintippen laesst.
+  nameInput.focus();
 }
 
 /* -------------------------------------------------------------------
