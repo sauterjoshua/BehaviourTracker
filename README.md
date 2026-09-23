@@ -14,28 +14,41 @@
 
 ## Was die Seite macht
 
-BehaviourTracker ist ein Kanban-Board für das Unterrichtsverhalten von
-Schülerinnen und Schülern. Während des Unterrichts wandern die Schüler
-zwischen drei Spalten:
+BehaviourTracker hilft, das Unterrichtsverhalten von Schülerinnen und
+Schülern sichtbar zu machen. Jede Person hat einen von drei Zuständen:
 
-| Spalte | Bedeutung |
+| Zustand | Bedeutung |
 | --- | --- |
 | Da geht mehr | grau |
 | Du arbeitest gut | hellgrün |
 | Du arbeitest großartig | dunkelgrün |
 
-- Alle Schüler starten links in „Da geht mehr“.
-- Karten werden per **Drag & Drop** oder über die **Pfeil-Buttons** in die
-  Nachbarspalte verschoben (nur direkt benachbarte Spalten sind erlaubt).
-- Die App misst automatisch, **wie lange** jede Person in welcher Spalte war.
-- In der **Klassen-Ansicht** lässt sich pro Schüler auswerten, wie viel Zeit
-  in welcher Spalte verbracht wurde – als Summe, in Prozent und aufgeschlüsselt
-  je Unterricht.
+Beim Start eines Unterrichts wählt man eine von zwei Ansichten:
+
+- **Kanban** – drei Spalten, alle Schüler starten links in „Da geht mehr“
+  und werden per **Drag & Drop** in die jeweils benachbarte Spalte
+  verschoben.
+- **Sortierte Ansicht** – alle Schüler alphabetisch in einem Raster.
+  Antippen der **linken** Boxhälfte schaltet einen Zustand zurück, die
+  **rechte** Hälfte einen vor; die Position im Raster bleibt dabei fest,
+  nur die Farbe wechselt. Im Header läuft eine Live-Zählung mit, z. B.
+  „2 können mehr | 5 arbeiten gut | 1 arbeitet großartig“.
+
+Beide Ansichten sind nur unterschiedliche Darstellungen derselben Daten –
+die App misst in beiden automatisch, **wie lange** jede Person in
+welchem Zustand war, und die Auswertung macht keinen Unterschied
+zwischen ihnen.
+
+- In der **Klassen-Ansicht** lässt sich pro Schüler auswerten, wie viel
+  Zeit in welchem Zustand verbracht wurde – als Summe, in Prozent und
+  aufgeschlüsselt je Unterricht.
 
 Kurzablauf im Unterricht:
 
 1. **Klassen** → Klasse anlegen → Schüler eintragen.
-2. **Unterrichte** → *Unterricht starten* → Klasse wählen.
-3. Während der Stunde Karten je nach Verhalten verschieben.
+2. **Unterrichte** → *Unterricht starten* → Klasse wählen → Ansicht wählen
+   (Kanban oder Sortiert).
+3. Während der Stunde je nach Verhalten verschieben (Kanban) bzw. antippen
+   (Sortierte Ansicht).
 4. Am Ende **Unterricht beenden**, um die Zeitmessung zu stoppen.
 5. Auswertung unter **Klassen** → Schüler antippen.
