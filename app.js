@@ -60,15 +60,6 @@ function cleanName(value, max = 80) {
     .slice(0, max);
 }
 
-function formatClock(seconds) {
-  const s = Math.max(0, Math.floor(seconds));
-  const hh = Math.floor(s / 3600);
-  const mm = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  const pad = (n) => String(n).padStart(2, "0");
-  return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
-}
-
 function formatDurationLong(seconds) {
   const s = Math.max(0, Math.round(seconds));
   if (s < 60) return `${s} s`;
@@ -198,10 +189,23 @@ function layoutBoard(boardEl) {
   const minFontPx = BOX_MIN_FONT_REM * rootFontPx;
   const minBoxPx = minFontPx / BOX_FONT_RATIO;
 
-  boardEl.querySelectorAll(".column__body").forEach((body) => {
-    const cards = body.querySelectorAll(".student");
-    const count = cards.length;
+  const bodies = [...boardEl.querySelectorAll(".column__body")];
+
+  // Phase 1: flex-grow fuer ALLE Spalten setzen, bevor irgendeine Breite
+  // gelesen wird. Wuerden Setzen und Lesen pro Spalte verschachtelt
+  // ablaufen, saehe eine fruehe Spalte noch die alten (bzw. bei frisch
+  // gebauten Spalten die Default-) flex-grow-Werte ihrer Geschwister und
+  // wuerde dadurch mit einer voruebergehend falschen Breite rechnen.
+  const counts = bodies.map((body) => {
+    const count = body.querySelectorAll(".student").length;
     body.parentElement.style.flexGrow = String(count);
+    return count;
+  });
+
+  // Phase 2: erst jetzt, wo alle Spalten ihre endgueltige Breite haben,
+  // die Boxgroessen berechnen.
+  bodies.forEach((body, i) => {
+    const count = counts[i];
     if (!count) {
       body.style.gridTemplateColumns = "";
       body.style.gridAutoRows = "";
@@ -209,6 +213,7 @@ function layoutBoard(boardEl) {
       return;
     }
 
+    const cards = body.querySelectorAll(".student");
     const cs = getComputedStyle(body);
     const width = body.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const height = body.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
@@ -494,13 +499,6 @@ const api = {
       .select("id, col:column, position, student_id, students(name)")
       .eq("lesson_id", lessonId)
       .order("position", { ascending: true }));
-  },
-
-  async openLogs(lessonId) {
-    return unwrap(await sb.from("column_time_logs")
-      .select("student_id, col:column, started_at")
-      .eq("lesson_id", lessonId)
-      .is("ended_at", null));
   },
 
   async studentTimes(studentId) {
@@ -930,7 +928,6 @@ async function renderBoard(lessonId) {
 
   const boardEl = h("div", { class: "board" });
   const headerEl = h("div", { class: "card row" });
-  const timerNodes = new Map();   // student_id -> { el, startedAt }
   let busy = false;
 
   appEl.replaceChildren(h("div", { class: "stack" }, headerEl, boardEl));
@@ -947,16 +944,11 @@ async function renderBoard(lessonId) {
   registerCleanup(() => window.removeEventListener("resize", onWindowResize));
 
   async function refresh() {
-    const [rows, openLogs] = await Promise.all([
-      api.boardRows(lessonId),
-      api.openLogs(lessonId)
-    ]);
-    const startedAt = new Map(openLogs.map((log) => [log.student_id, new Date(log.started_at)]));
-    draw(rows, startedAt);
+    const rows = await api.boardRows(lessonId);
+    draw(rows);
   }
 
-  function draw(rows, startedAt) {
-    timerNodes.clear();
+  function draw(rows) {
     const byColumn = { links: [], mitte: [], rechts: [] };
     for (const row of rows) {
       if (row.col in byColumn) byColumn[row.col].push(row);
@@ -969,7 +961,7 @@ async function renderBoard(lessonId) {
       const body = h("div", { class: "column__body", dataset: { column: column.key } });
 
       for (const row of byColumn[column.key]) {
-        body.append(studentCard(row, column.key, startedAt.get(row.student_id)));
+        body.append(studentCard(row, column.key));
       }
       if (!byColumn[column.key].length) {
         body.append(h("p", { class: "empty small" }, "–"));
@@ -1004,19 +996,15 @@ async function renderBoard(lessonId) {
 
   let dragFrom = null;
 
-  function studentCard(row, columnKey, startedAtValue) {
+  function studentCard(row, columnKey) {
     const name = row.students?.name ?? "Unbekannt";
-
-    const timerEl = h("span", { class: "student__timer" }, "–");
-    if (startedAtValue) timerNodes.set(row.student_id, { el: timerEl, startedAt: startedAtValue });
 
     const card = h("div", {
       class: "student",
       draggable: lesson.ended_at ? "false" : "true",
       dataset: { studentId: row.student_id, column: columnKey }
     },
-      h("div", { class: "student__name" }, name),
-      timerEl);
+      h("div", { class: "student__name" }, name));
 
     card.addEventListener("dragstart", (event) => {
       if (lesson.ended_at) { event.preventDefault(); return; }
@@ -1076,21 +1064,8 @@ async function renderBoard(lessonId) {
       actions);
   }
 
-  function tick() {
-    const now = Date.now();
-    for (const { el, startedAt } of timerNodes.values()) {
-      el.textContent = formatClock((now - startedAt.getTime()) / 1000);
-    }
-  }
-
   drawHeader();
   await refresh();
-  tick();
-
-  if (!lesson.ended_at) {
-    const interval = setInterval(tick, 1000);
-    registerCleanup(() => clearInterval(interval));
-  }
 }
 
 /** Minimaler CSS.escape-Ersatz fuer aeltere Browser. */

@@ -342,13 +342,6 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
   overflow-wrap: anywhere;
   line-height: 1.15;
 }
-.student__timer {
-  display: block;
-  font-size: .7em;
-  font-weight: 500;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
 
 /* ---------------- Auswertung ---------------- */
 
