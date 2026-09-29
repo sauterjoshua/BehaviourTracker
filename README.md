@@ -8,7 +8,8 @@
 
 1. Link oben öffnen.
 2. Mit E-Mail und Passwort anmelden (bzw. beim ersten Mal registrieren).
-3. Nach dem Login erscheint das Menü mit **Klassen** und **Unterrichte**.
+3. Nach dem Login erscheint das Menü mit **Klassen**, **Unterrichte** und
+   **Fokus-Wald**.
 
 ---
 
@@ -52,3 +53,32 @@ Kurzablauf im Unterricht:
    (Sortierte Ansicht).
 4. Am Ende **Unterricht beenden**, um die Zeitmessung zu stoppen.
 5. Auswertung unter **Klassen** → Schüler antippen.
+
+---
+
+## Fokus-Wald (Lautstärke-Monitor)
+
+Für Stillarbeit auf dem Beamer, aufgebaut wie
+[Mio's Monster Meter](https://sleepy-mio.classroomzen.com/) – nur mit einem
+Baum statt eines Monsters, damit es auch bei älteren Klassen zieht.
+
+| Lautstärke | Wirkung |
+| --- | --- |
+| ruhig (grün) | Timer läuft, der Baum wächst |
+| unruhig (gelb) | Timer pausiert |
+| zu laut (rot, länger als ca. 1,5 s) | Baum vertrocknet, ein neuer Samen startet |
+
+- Jeder erreichte Timer pflanzt den Baum dauerhaft im **Wald der Klasse**.
+  Längere Ziele ergeben seltenere Bäume (bis 5 min Laubbaum, 10–15 min Tanne,
+  ab 20 min Kirschbaum).
+- Die Klassen werden in einem **Ranking** nach Fokus-Minuten verglichen.
+- Pro Klasse lässt sich eine **Belohnung** festlegen, z. B. „bei 20 Bäumen:
+  Musik in der Stillarbeit“.
+- Beim Erklären auf **Pause** tippen (oder Leertaste), damit die eigene
+  Stimme nicht mitzählt. Die Empfindlichkeit lässt sich im *Probelauf ohne
+  Klasse* einstellen.
+
+Das Mikrofon misst nur die Lautstärke direkt im Browser – es wird nichts
+aufgenommen, gespeichert oder übertragen. Gespeichert wird nur der fertige
+Baum. Einmalig muss dafür `supabase/migrations/0003_focus.sql` im Supabase
+SQL-Editor ausgeführt werden.
