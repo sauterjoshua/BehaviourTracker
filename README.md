@@ -70,7 +70,11 @@ Baum statt eines Monsters, damit es auch bei älteren Klassen zieht.
 
 - Jeder erreichte Timer pflanzt den Baum dauerhaft im **Wald der Klasse**.
   Längere Ziele ergeben seltenere Bäume (bis 5 min Laubbaum, 10–15 min Tanne,
-  ab 20 min Kirschbaum).
+  ab 20 min Kirschbaum). Während der Fokus-Phase steht der bisherige Wald
+  der Klasse blass im Hintergrund.
+- Ziel **Offen**: Der Timer zählt hoch, der Baum wird ab 10 min zur Tanne und
+  ab 20 min zum Kirschbaum. Mit **Baum pflanzen** (ab 3 min) wird er mit der
+  erreichten Zeit gepflanzt.
 - Die Klassen werden in einem **Ranking** nach Fokus-Minuten verglichen.
 - Pro Klasse lässt sich eine **Belohnung** festlegen, z. B. „bei 20 Bäumen:
   Musik in der Stillarbeit“.

@@ -1248,6 +1248,12 @@ function cssEscape(value) {
 
 const FOCUS_PROBE = "probelauf";
 const FOCUS_GOALS_MIN = [3, 5, 10, 15, 20, 30, 45];
+/** Offenes Ziel: der Timer zaehlt hoch, die Baumart richtet sich nach der erreichten Zeit. */
+const FOCUS_OPEN = "offen";
+/** Im offenen Modus ist der Baum nach dieser Zeit ausgewachsen (wie beim kuerzesten Ziel). */
+const FOCUS_OPEN_GROWN_SECONDS = FOCUS_GOALS_MIN[0] * 60;
+/** Obergrenze laut Datenbank (focus_trees.goal_seconds). */
+const FOCUS_OPEN_MAX_SECONDS = 7200;
 const FOCUS_TICK_MS = 50;
 /** Zonengrenzen auf der Pegelskala 0–100 (nach Empfindlichkeit), wie bei Mio. */
 const FOCUS_ZONES = { unruhig: 25, laut: 50 };
@@ -1307,10 +1313,17 @@ const TREE_SPECIES = {
   kirsch: { name: "Kirschbaum" }
 };
 
+/** Ab dieser Zeit (Sekunden) waechst die jeweilige Art. */
+const TREE_THRESHOLDS = [["kirsch", 20 * 60], ["tanne", 10 * 60], ["laub", 0]];
+
 function speciesForGoal(seconds) {
-  if (seconds >= 20 * 60) return "kirsch";
-  if (seconds >= 10 * 60) return "tanne";
-  return "laub";
+  return TREE_THRESHOLDS.find(([, from]) => seconds >= from)[0];
+}
+
+/** Naechste Baumart im offenen Modus, oder null bei der seltensten. */
+function nextSpecies(seconds) {
+  const next = [...TREE_THRESHOLDS].reverse().find(([, from]) => seconds < from);
+  return next ? { species: next[0], seconds: next[1] } : null;
 }
 
 const circles = (list) => list.map(([cx, cy, r]) => ({ cx, cy, r }));
@@ -1639,7 +1652,7 @@ async function renderFocusRoom(classId) {
   }
 
   let goalMinutes = readPref(PREF_FOCUS_GOAL, 10);
-  if (!FOCUS_GOALS_MIN.includes(goalMinutes)) goalMinutes = 10;
+  if (!FOCUS_GOALS_MIN.includes(goalMinutes) && goalMinutes !== FOCUS_OPEN) goalMinutes = 10;
 
   showSetup();
 
@@ -1649,12 +1662,13 @@ async function renderFocusRoom(classId) {
     appEl.className = "app";
     setChrome({ title: probe ? "Fokus-Wald: Probelauf" : `Fokus-Wald: ${cls.name}`, back: "/focus" });
 
-    const goalButtons = FOCUS_GOALS_MIN.map((minutes) => {
-      const species = speciesForGoal(minutes * 60);
+    const goalButtons = [...FOCUS_GOALS_MIN, FOCUS_OPEN].map((minutes) => {
+      const open = minutes === FOCUS_OPEN;
+      const species = open ? "laub" : speciesForGoal(minutes * 60);
       const btn = h("button", { class: "goal", type: "button", "aria-pressed": String(minutes === goalMinutes) },
         stillTree(species, 3),
-        h("span", { class: "goal__min" }, `${minutes} min`),
-        h("span", { class: "goal__species" }, TREE_SPECIES[species].name));
+        h("span", { class: "goal__min" }, open ? "Offen" : `${minutes} min`),
+        h("span", { class: "goal__species" }, open ? "zählt hoch" : TREE_SPECIES[species].name));
       btn.addEventListener("click", () => {
         goalMinutes = minutes;
         writePref(PREF_FOCUS_GOAL, minutes);
@@ -1675,14 +1689,16 @@ async function renderFocusRoom(classId) {
         return showError(error, "Das Mikrofon konnte nicht gestartet werden.");
       }
       if (disposed) { noise.stop(); return; }
-      runSession(noise, goalMinutes * 60);
+      runSession(noise, goalMinutes === FOCUS_OPEN ? null : goalMinutes * 60);
     });
 
     const startCard = h("div", { class: "card" },
       h("h2", {}, "Ziel waehlen"),
       h("p", { class: "muted small" },
         "So lange muss es insgesamt ruhig sein, bis der Baum ausgewachsen ist. " +
-        "Laengere Ziele lassen seltenere Baeume wachsen."),
+        "Laengere Ziele lassen seltenere Baeume wachsen. " +
+        "„Offen“ zaehlt hoch: ab 10 min wird es eine Tanne, ab 20 min ein Kirschbaum – " +
+        `gepflanzt wird mit „Baum pflanzen“ (ab ${FOCUS_GOALS_MIN[0]} min).`),
       h("div", { class: "goals" }, goalButtons),
       startBtn,
       h("p", { class: "muted small" },
@@ -1804,8 +1820,11 @@ async function renderFocusRoom(classId) {
 
   /* ----- Laufende Fokus-Phase (Beamer) ----- */
 
+  /** goalSeconds = null: offenes Ziel, der Timer zaehlt hoch. */
   function runSession(noise, goalSeconds) {
-    const species = speciesForGoal(goalSeconds);
+    const open = goalSeconds === null;
+    const limit = open ? FOCUS_OPEN_MAX_SECONDS : goalSeconds;
+    let species = open ? "laub" : speciesForGoal(goalSeconds);
     let sensitivity = Number(readPref(PREF_FOCUS_SENSITIVITY, 2.5));
     if (!(sensitivity >= 0.5 && sensitivity <= 8)) sensitivity = 2.5;
 
@@ -1823,6 +1842,7 @@ async function renderFocusRoom(classId) {
     let lastMood = "";
     let celebration = null;
     let round = 0;            // zaehlt Neustarts, damit spaete Antworten nichts ueberschreiben
+    let plantedSeconds = 0;
 
     const STATUS = {
       calm: "Ruhig – der Baum wächst",
@@ -1833,16 +1853,21 @@ async function renderFocusRoom(classId) {
       paused: "Pause – der Baum wartet"
     };
 
-    const tree = buildTree(species);
+    let tree = buildTree(species);
     tree.setProgress(0, { instant: true });
 
-    const timeEl = h("div", { class: "focus__time" }, formatClock(goalSeconds));
+    const timeEl = h("div", { class: "focus__time" }, formatClock(open ? 0 : goalSeconds));
+    const goalEl = h("div", { class: "focus__goal" });
+    const backdropEl = h("div", { class: "focus__backdrop", "aria-hidden": "true" });
     const statusEl = h("div", { class: "focus__status", role: "status", "aria-live": "polite" });
     const progressFill = h("div", { class: "focus__progress-fill" });
     const meterFill = h("div", { class: "meter__fill" });
     const footerEl = h("div", { class: "focus__bottom" });
 
     const pauseBtn = h("button", { class: "btn", type: "button", onclick: togglePause }, "Pause");
+    const plantBtn = open
+      ? h("button", { class: "btn btn--primary", type: "button", disabled: true, onclick: plantNow }, "Baum pflanzen")
+      : null;
     const slider = h("input", {
       class: "slider", type: "range", min: "0.5", max: "8", step: "0.25",
       value: String(sensitivity), "aria-label": "Empfindlichkeit"
@@ -1857,10 +1882,10 @@ async function renderFocusRoom(classId) {
       h("div", { class: "focus__top" },
         h("div", {},
           timeEl,
-          h("div", { class: "focus__goal" },
-            `${TREE_SPECIES[species].name} · Ziel ${goalSeconds / 60} min`)),
+          goalEl),
         h("div", { class: "focus__panel" },
           h("div", { class: "focus__buttons" },
+            plantBtn,
             pauseBtn,
             h("button", { class: "btn", type: "button", onclick: restart }, "Neu starten"),
             document.fullscreenEnabled
@@ -1877,7 +1902,7 @@ async function renderFocusRoom(classId) {
             h("span", { class: "focus__label" }, "Empfindlichkeit"),
             slider,
             h("span", { class: "focus__scale" }, h("span", {}, "weniger"), h("span", {}, "mehr"))))),
-      h("div", { class: "focus__stage" }, statusEl, tree.el),
+      h("div", { class: "focus__stage" }, backdropEl, statusEl, tree.el),
       footerEl);
 
     topbarEl.hidden = true;
@@ -1904,24 +1929,41 @@ async function renderFocusRoom(classId) {
       if (candidate !== zone && now - candidateSince >= FOCUS_ZONE_DWELL_MS[candidate]) zone = candidate;
 
       if (phase === "running" && !paused) {
-        if (zone === "ruhig") elapsed = Math.min(goalSeconds, elapsed + dt);
+        if (zone === "ruhig") elapsed = Math.min(limit, elapsed + dt);
         if (zone === "laut") {
           loudSince ??= now;
           if (now - loudSince >= FOCUS_WITHER_MS) { loudSince = null; wither(); }
         } else {
           loudSince = null;
         }
-        if (elapsed >= goalSeconds) complete();
+        if (elapsed >= limit) complete();
       }
       draw(level);
     }
 
     function draw(level) {
-      timeEl.textContent = formatClock(Math.ceil(goalSeconds - elapsed));
-      progressFill.style.width = `${(elapsed / goalSeconds) * 100}%`;
       meterFill.style.width = `${Math.min(100, (level / 75) * 100)}%`;
       meterFill.className = `meter__fill meter__fill--${zone}`;
-      if (phase !== "withering") tree.setProgress(elapsed / goalSeconds);
+
+      if (open) {
+        // Beim Erreichen einer Schwelle wird der Baum zur naechsten Art.
+        if (phase === "running" && speciesForGoal(elapsed) !== species) {
+          setSpecies(speciesForGoal(elapsed), elapsed >= FOCUS_OPEN_GROWN_SECONDS ? 1 : 0);
+        }
+        const next = nextSpecies(elapsed);
+        timeEl.textContent = formatClock(Math.floor(elapsed));
+        progressFill.style.width = `${(next ? elapsed / next.seconds : 1) * 100}%`;
+        goalEl.textContent = next
+          ? `${TREE_SPECIES[species].name} · ${TREE_SPECIES[next.species].name} ab ${next.seconds / 60} min`
+          : `${TREE_SPECIES[species].name} · seltenste Art erreicht`;
+        plantBtn.disabled = phase !== "running" || elapsed < FOCUS_OPEN_GROWN_SECONDS;
+        if (phase !== "withering") tree.setProgress(elapsed / FOCUS_OPEN_GROWN_SECONDS);
+      } else {
+        timeEl.textContent = formatClock(Math.ceil(goalSeconds - elapsed));
+        progressFill.style.width = `${(elapsed / goalSeconds) * 100}%`;
+        goalEl.textContent = `${TREE_SPECIES[species].name} · Ziel ${goalSeconds / 60} min`;
+        if (phase !== "withering") tree.setProgress(elapsed / goalSeconds);
+      }
 
       const mood = phase === "done" ? "done"
         : phase === "withering" ? "withered"
@@ -1937,6 +1979,20 @@ async function renderFocusRoom(classId) {
       }
     }
 
+    /** Tauscht den wachsenden Baum gegen eine andere Art (offener Modus). */
+    function setSpecies(next, progress) {
+      species = next;
+      const replacement = buildTree(species);
+      replacement.setProgress(progress, { instant: true });
+      tree.el.replaceWith(replacement.el);
+      tree = replacement;
+      lastMood = "";
+    }
+
+    function plantNow() {
+      if (phase === "running" && elapsed >= FOCUS_OPEN_GROWN_SECONDS) complete();
+    }
+
     function wither() {
       if (elapsed < FOCUS_MIN_WITHER_SECONDS) { elapsed = 0; return; }
       phase = "withering";
@@ -1950,11 +2006,12 @@ async function renderFocusRoom(classId) {
     async function complete() {
       phase = "done";
       loudSince = null;
+      plantedSeconds = open ? Math.floor(elapsed) : goalSeconds;
       const myRound = round;
       let number = null;
       if (!probe) {
         try {
-          const planted = await api.plantTree(cls.id, goalSeconds);
+          const planted = await api.plantTree(cls.id, plantedSeconds);
           cls.focus_trees.push(planted);
           number = cls.focus_trees.length;
         } catch (error) {
@@ -1967,7 +2024,7 @@ async function renderFocusRoom(classId) {
     }
 
     function showCelebration(number) {
-      const minutes = goalSeconds / 60;
+      const minutes = Math.floor(plantedSeconds / 60);
       const reward = probe ? null : rewardProgress(cls);
       const message = number
         ? `Baum Nr. ${number} steht jetzt im Wald von ${cls.name}.`
@@ -2001,9 +2058,10 @@ async function renderFocusRoom(classId) {
       }
       const stats = forestStats(cls);
       const reward = rewardProgress(cls);
+      // Die bisher geschafften Baeume stehen hinter dem wachsenden Baum.
+      backdropEl.replaceChildren(stats.count ? forestView(cls.focus_trees, { limit: 60, scale: 1.5 }) : "");
       footerEl.replaceChildren(
         h("div", { class: "focus__forest" },
-          stats.count ? forestView(cls.focus_trees, { limit: 18, scale: 0.6 }) : null,
           h("div", {},
             h("strong", {}, `Wald von ${cls.name}`),
             h("div", { class: "focus__sub" },
@@ -2046,7 +2104,8 @@ async function renderFocusRoom(classId) {
 
     function requestExit() {
       if (phase === "running" && elapsed >= 30) {
-        confirmDelete("Fokus-Phase beenden? Der aktuelle Baum wird nicht gepflanzt.", async () => exit(), "Beenden");
+        const hint = open && elapsed >= FOCUS_OPEN_GROWN_SECONDS ? " Zum Pflanzen vorher „Baum pflanzen“ tippen." : "";
+        confirmDelete(`Fokus-Phase beenden? Der aktuelle Baum wird nicht gepflanzt.${hint}`, async () => exit(), "Beenden");
       } else {
         exit();
       }

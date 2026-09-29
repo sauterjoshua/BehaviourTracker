@@ -637,12 +637,33 @@ details summary { cursor: pointer; }
 .slider { display: block; width: 100%; accent-color: #86efac; }
 
 .focus__stage {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   min-height: 0;
   padding: 0 1rem;
+}
+.focus__stage > :not(.focus__backdrop) { position: relative; z-index: 1; }
+/* Bisher geschaffte Baeume der Klasse, blass hinter dem wachsenden Baum. */
+.focus__backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  opacity: .35;
+  pointer-events: none;
+}
+.focus__backdrop .forest {
+  flex-wrap: wrap-reverse;
+  justify-content: center;
+  gap: 0 .4rem;
+  margin: 0;
+  padding: 0 0 .2rem;
+  background: none;
 }
 .focus__status {
   margin-bottom: .25rem;
