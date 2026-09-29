@@ -580,6 +580,7 @@ details summary { cursor: pointer; }
 .focus--withered { background-color: #4a2a17; }
 .focus--paused   { background-color: #262b36; }
 .focus--done     { background-color: #14452f; }
+.focus--banked   { background-color: #14452f; }
 
 .focus__progress { position: absolute; top: 0; left: 0; right: 0; height: 5px; background: rgba(255, 255, 255, .1); }
 .focus__progress-fill { width: 0; height: 100%; background: #86efac; transition: width .3s linear; }

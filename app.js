@@ -1308,9 +1308,9 @@ function svg(tag, attrs = {}, ...children) {
 
 /** Laengere Ziele lassen seltenere Baeume wachsen – ein Sammelanreiz. */
 const TREE_SPECIES = {
-  laub:   { name: "Laubbaum" },
-  tanne:  { name: "Tanne" },
-  kirsch: { name: "Kirschbaum" }
+  laub:   { name: "Laubbaum", article: "Der" },
+  tanne:  { name: "Tanne", article: "Die" },
+  kirsch: { name: "Kirschbaum", article: "Der" }
 };
 
 /** Ab dieser Zeit (Sekunden) waechst die jeweilige Art. */
@@ -1710,7 +1710,8 @@ async function renderFocusRoom(classId) {
         h("ul", { class: "rules" },
           h("li", {}, "Gruen (ruhig): Der Timer laeuft, der Baum waechst."),
           h("li", {}, "Gelb (unruhig): Der Timer pausiert."),
-          h("li", {}, "Rot (laenger als ca. 1,5 s zu laut): Der Baum vertrocknet, es beginnt ein neuer Samen."),
+          h("li", {}, "Rot (laenger als ca. 1,5 s zu laut): Der Baum vertrocknet, es beginnt ein neuer Samen. " +
+            `Bei „Offen“ wird ab ${FOCUS_GOALS_MIN[0]} min stattdessen die erreichte Stufe gepflanzt.`),
           h("li", {}, "Beim Erklaeren auf „Pause“ tippen oder die Leertaste druecken – sonst zaehlt die eigene Stimme mit."),
           h("li", {}, "Mit dem Regler „Empfindlichkeit“ an Raum und Mikrofon anpassen; der Probelauf eignet sich zum Einstellen."))));
 
@@ -1828,7 +1829,7 @@ async function renderFocusRoom(classId) {
     let sensitivity = Number(readPref(PREF_FOCUS_SENSITIVITY, 2.5));
     if (!(sensitivity >= 0.5 && sensitivity <= 8)) sensitivity = 2.5;
 
-    let phase = "running";   // running | withering | done
+    let phase = "running";   // running | withering | banked | done
     let paused = false;
     let elapsed = 0;          // ruhige Sekunden fuer den aktuellen Baum
     let zone = "ruhig";
@@ -1967,6 +1968,7 @@ async function renderFocusRoom(classId) {
 
       const mood = phase === "done" ? "done"
         : phase === "withering" ? "withered"
+        : phase === "banked" ? "banked"
         : paused ? "paused"
         : zone === "laut" ? "loud"
         : zone === "unruhig" ? "uneasy"
@@ -1975,7 +1977,9 @@ async function renderFocusRoom(classId) {
         lastMood = mood;
         tree.setMood(mood);
         root.className = `focus focus--${mood}`;
-        statusEl.textContent = STATUS[mood];
+        statusEl.textContent = mood === "banked"
+          ? `Zu laut! ${TREE_SPECIES[species].article} ${TREE_SPECIES[species].name} wurde gepflanzt – ein neuer Samen startet`
+          : STATUS[mood];
       }
     }
 
@@ -1995,7 +1999,10 @@ async function renderFocusRoom(classId) {
 
     function wither() {
       if (elapsed < FOCUS_MIN_WITHER_SECONDS) { elapsed = 0; return; }
-      phase = "withering";
+      // Offen: die zuletzt erreichte Stufe wird trotzdem gepflanzt, danach neuer Samen.
+      const bank = open && elapsed >= FOCUS_OPEN_GROWN_SECONDS;
+      if (bank) savePlant(Math.floor(elapsed)).then(drawFooter);
+      phase = bank ? "banked" : "withering";
       witherTimer = setTimeout(() => {
         elapsed = 0;
         tree.setProgress(0, { instant: true });
@@ -2008,19 +2015,23 @@ async function renderFocusRoom(classId) {
       loudSince = null;
       plantedSeconds = open ? Math.floor(elapsed) : goalSeconds;
       const myRound = round;
-      let number = null;
-      if (!probe) {
-        try {
-          const planted = await api.plantTree(cls.id, plantedSeconds);
-          cls.focus_trees.push(planted);
-          number = cls.focus_trees.length;
-        } catch (error) {
-          showError(error, "Der Baum konnte nicht gespeichert werden.");
-        }
-      }
+      const number = await savePlant(plantedSeconds);
       drawFooter();
       if (stopped || round !== myRound) return;
       showCelebration(number);
+    }
+
+    /** Speichert einen Baum; liefert seine Nummer im Wald oder null. */
+    async function savePlant(seconds) {
+      if (probe) return null;
+      try {
+        const planted = await api.plantTree(cls.id, seconds);
+        cls.focus_trees.push(planted);
+        return cls.focus_trees.length;
+      } catch (error) {
+        showError(error, "Der Baum konnte nicht gespeichert werden.");
+        return null;
+      }
     }
 
     function showCelebration(number) {

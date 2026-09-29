@@ -74,7 +74,9 @@ Baum statt eines Monsters, damit es auch bei älteren Klassen zieht.
   der Klasse blass im Hintergrund.
 - Ziel **Offen**: Der Timer zählt hoch, der Baum wird ab 10 min zur Tanne und
   ab 20 min zum Kirschbaum. Mit **Baum pflanzen** (ab 3 min) wird er mit der
-  erreichten Zeit gepflanzt.
+  erreichten Zeit gepflanzt. Wird es ab 3 min zu laut, vertrocknet der Baum
+  nicht, sondern die zuletzt erreichte Stufe wird gepflanzt und ein neuer
+  Samen startet.
 - Die Klassen werden in einem **Ranking** nach Fokus-Minuten verglichen.
 - Pro Klasse lässt sich eine **Belohnung** festlegen, z. B. „bei 20 Bäumen:
   Musik in der Stillarbeit“.
