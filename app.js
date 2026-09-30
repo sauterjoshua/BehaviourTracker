@@ -553,18 +553,18 @@ const api = {
 
   async listSeats(classId) {
     return unwrap(await sb.from("students")
-      .select("id, name, seat_x, seat_y").eq("class_id", classId).order("name"));
+      .select("id, name, seat_x, seat_y, seat_rot").eq("class_id", classId).order("name"));
   },
 
   async setSeat(studentId, seat) {
     return unwrap(await sb.from("students")
-      .update({ seat_x: seat?.x ?? null, seat_y: seat?.y ?? null })
+      .update({ seat_x: seat?.x ?? null, seat_y: seat?.y ?? null, seat_rot: seat?.rot ?? false })
       .eq("id", studentId));
   },
 
   async clearSeats(classId) {
     return unwrap(await sb.from("students")
-      .update({ seat_x: null, seat_y: null }).eq("class_id", classId));
+      .update({ seat_x: null, seat_y: null, seat_rot: false }).eq("class_id", classId));
   },
 
   async getStudent(id) {
@@ -874,20 +874,23 @@ async function renderClassDetail(classId) {
 /* -------------------------------------------------------------------
    Ansicht: Sitzplan einer Klasse
    -------------------------------------------------------------------
-   Tische werden frei per Pointer (Maus, Finger, Stift) verschoben.
-   Positionen sind virtuelle Raumeinheiten (SEAT_ROOM_W x SEAT_ROOM_H),
-   der Raum skaliert per CSS auf die verfuegbare Breite. Beim Loslassen
-   rastet ein Tisch buendig neben/ueber/unter einem Nachbarn ein, auch
-   wenn noch eine kleine Luecke war; ohne Nachbarn in Reichweite richtet
-   er sich an den Reihen und Spalten der anderen Tische aus.
+   Tische werden frei per Pointer (Maus, Finger, Stift) verschoben;
+   Antippen dreht einen Tisch hochkant bzw. zurueck. Positionen sind
+   virtuelle Raumeinheiten (SEAT_ROOM_W x SEAT_ROOM_H), der Raum skaliert
+   per CSS auf die verfuegbare Breite. Beim Loslassen rastet ein Tisch
+   buendig an einer Seite eines Nachbarn ein (Kante oder Mitte
+   ausgerichtet, damit hochkant stehende Tische z. B. an die Stirnseite
+   eines Zweiertisches passen), auch wenn noch eine kleine Luecke war.
+   Ohne Nachbarn in Reichweite richtet er sich an den Kanten der anderen
+   Tische aus.
    ------------------------------------------------------------------- */
 
 const SEAT_ROOM_W = 1200;
 const SEAT_ROOM_H = 700;
-const SEAT_W = 120;
+const SEAT_W = 120;          // quer; hochkant sind Breite und Hoehe vertauscht
 const SEAT_H = 60;
 const SEAT_SNAP = 45;        // bis zu dieser Entfernung rastet ein Tisch am Nachbarn ein
-const SEAT_ALIGN = 14;       // Ausrichten an Reihen/Spalten anderer Tische
+const SEAT_ALIGN = 14;       // Ausrichten an Kanten anderer Tische
 const SEAT_EPS = 0.5;
 const SEAT_DRAG_START_PX = 4;
 // Automatisch platzieren: Zweiertische, vier pro Reihe, vorne (unten) beginnend.
@@ -896,18 +899,21 @@ const SEAT_AUTO_AISLE = 60;
 const SEAT_AUTO_ROW_GAP = 40;
 const SEAT_AUTO_MARGIN = 20;
 
-const clampSeat = ({ x, y }) => ({
-  x: Math.min(Math.max(Math.round(x), 0), SEAT_ROOM_W - SEAT_W),
-  y: Math.min(Math.max(Math.round(y), 0), SEAT_ROOM_H - SEAT_H)
-});
+/** Tisch als Rechteck { x, y, w, h, rot } in Raumeinheiten. */
+const seatRect = (x, y, rot) => ({ x, y, rot, w: rot ? SEAT_H : SEAT_W, h: rot ? SEAT_W : SEAT_H });
 
-const seatInRoom = ({ x, y }) =>
-  x >= 0 && y >= 0 && x <= SEAT_ROOM_W - SEAT_W && y <= SEAT_ROOM_H - SEAT_H;
+const clampSeat = (r) => seatRect(
+  Math.min(Math.max(Math.round(r.x), 0), SEAT_ROOM_W - r.w),
+  Math.min(Math.max(Math.round(r.y), 0), SEAT_ROOM_H - r.h),
+  r.rot);
+
+const seatInRoom = (r) => r.x >= 0 && r.y >= 0 && r.x + r.w <= SEAT_ROOM_W && r.y + r.h <= SEAT_ROOM_H;
 
 const seatsOverlap = (a, b) =>
-  Math.abs(a.x - b.x) < SEAT_W - SEAT_EPS && Math.abs(a.y - b.y) < SEAT_H - SEAT_EPS;
+  a.x < b.x + b.w - SEAT_EPS && b.x < a.x + a.w - SEAT_EPS &&
+  a.y < b.y + b.h - SEAT_EPS && b.y < a.y + a.h - SEAT_EPS;
 
-const seatOverlapsAny = (p, others) => others.some((o) => seatsOverlap(p, o));
+const seatOverlapsAny = (r, others) => others.some((o) => seatsOverlap(r, o));
 
 function nearestWithin(value, candidates, max) {
   let best = null;
@@ -919,6 +925,16 @@ function nearestWithin(value, candidates, max) {
   return best;
 }
 
+/** Buendige Andockplaetze fuer einen Tisch der Groesse w x h an o. */
+function dockCandidates(o, w, h) {
+  const ys = [o.y, o.y + o.h - h, o.y + (o.h - h) / 2];
+  const xs = [o.x, o.x + o.w - w, o.x + (o.w - w) / 2];
+  return [
+    ...ys.map((y) => ({ x: o.x + o.w, y })), ...ys.map((y) => ({ x: o.x - w, y })),
+    ...xs.map((x) => ({ x, y: o.y + o.h })), ...xs.map((x) => ({ x, y: o.y - h }))
+  ];
+}
+
 /** Zielposition fuer einen losgelassenen Tisch, oder null, wenn er dort
  * einen anderen Tisch ueberdecken wuerde. */
 function snapSeat(raw, others) {
@@ -928,20 +944,17 @@ function snapSeat(raw, others) {
   let best = null;
   let bestD = seatOverlapsAny(p, others) ? SEAT_W : SEAT_SNAP;
   for (const o of others) {
-    const candidates = [
-      { x: o.x + SEAT_W, y: o.y }, { x: o.x - SEAT_W, y: o.y },
-      { x: o.x, y: o.y + SEAT_H }, { x: o.x, y: o.y - SEAT_H }
-    ];
-    for (const c of candidates) {
+    for (const { x, y } of dockCandidates(o, p.w, p.h)) {
+      const c = seatRect(x, y, p.rot);
       const d = Math.hypot(p.x - c.x, p.y - c.y);
       if (d < bestD && seatInRoom(c) && !seatOverlapsAny(c, others)) { best = c; bestD = d; }
     }
   }
   if (best) return best;
 
-  const ax = nearestWithin(p.x, others.flatMap((o) => [o.x, o.x - SEAT_W, o.x + SEAT_W]), SEAT_ALIGN);
-  const ay = nearestWithin(p.y, others.flatMap((o) => [o.y, o.y - SEAT_H, o.y + SEAT_H]), SEAT_ALIGN);
-  const aligned = clampSeat({ x: ax ?? p.x, y: ay ?? p.y });
+  const ax = nearestWithin(p.x, others.flatMap((o) => [o.x, o.x + o.w, o.x - p.w, o.x + o.w - p.w]), SEAT_ALIGN);
+  const ay = nearestWithin(p.y, others.flatMap((o) => [o.y, o.y + o.h, o.y - p.h, o.y + o.h - p.h]), SEAT_ALIGN);
+  const aligned = clampSeat(seatRect(ax ?? p.x, ay ?? p.y, p.rot));
   if (!seatOverlapsAny(aligned, others)) return aligned;
   return seatOverlapsAny(p, others) ? null : p;
 }
@@ -955,7 +968,7 @@ function autoSeatSlots(occupied) {
   for (let y = SEAT_ROOM_H - SEAT_AUTO_MARGIN - SEAT_H; y >= 0; y -= SEAT_H + SEAT_AUTO_ROW_GAP) {
     for (let pair = 0; pair < SEAT_AUTO_PAIRS; pair++) {
       const x = startX + pair * (pairW + SEAT_AUTO_AISLE);
-      for (const slot of [{ x, y }, { x: x + SEAT_W, y }]) {
+      for (const slot of [seatRect(x, y, false), seatRect(x + SEAT_W, y, false)]) {
         if (!seatOverlapsAny(slot, occupied)) slots.push(slot);
       }
     }
@@ -981,14 +994,14 @@ async function renderSeating(classId) {
       h("div", { class: "card stack" },
         h("h2", {}, "Datenbank-Update fehlt"),
         h("p", { class: "muted" },
-          "Fuer den Sitzplan muss einmalig die Migration supabase/migrations/0004_seating.sql " +
-          "im Supabase SQL-Editor ausgefuehrt werden.")));
+          "Fuer den Sitzplan muessen einmalig die Migrationen supabase/migrations/0004_seating.sql " +
+          "und 0005_seat_rotation.sql im Supabase SQL-Editor ausgefuehrt werden.")));
     return;
   }
 
-  // Lokaler Zustand: id -> { x, y } | null
+  // Lokaler Zustand: id -> seatRect | null
   const seats = new Map(students.map((s) =>
-    [s.id, s.seat_x === null || s.seat_y === null ? null : { x: s.seat_x, y: s.seat_y }]));
+    [s.id, s.seat_x === null || s.seat_y === null ? null : seatRect(s.seat_x, s.seat_y, s.seat_rot)]));
   const nameOf = new Map(students.map((s) => [s.id, s.name]));
 
   const trayEl = h("div", { class: "seat-tray" });
@@ -1018,8 +1031,9 @@ async function renderSeating(classId) {
         roomEl,
         h("div", { class: "seating__board" }, "Tafel")),
       h("p", { class: "muted small" },
-        "Tische in den Raum ziehen. Neben, ueber oder unter einem anderen Tisch rasten sie " +
-        "buendig ein. Zurueck in die Ablage ziehen, um einen Platz freizugeben."))
+        "Tische in den Raum ziehen. An jeder Seite eines anderen Tisches rasten sie buendig ein. " +
+        "Antippen dreht einen Tisch hochkant, z. B. fuer die Stirnseite einer Tischreihe. " +
+        "Zurueck in die Ablage ziehen, um einen Platz freizugeben."))
   );
 
   const placedOthers = (exceptId) => [...seats]
@@ -1046,21 +1060,37 @@ async function renderSeating(classId) {
       const seat = seats.get(s.id);
       const el = seatEl(s.id);
       placeEl(el, seat);
-      // Buendig anliegende Seiten ohne Rundung, damit Nachbarn wie ein Tisch wirken.
+      el.classList.toggle("seat--rot", seat.rot);
+      // Ecken, an denen ein Nachbar buendig anliegt, ohne Rundung, damit
+      // aneinanderstehende Tische wie ein Stueck wirken.
       const others = placedOthers(s.id);
-      const touches = (dx, dy) => others.some((o) =>
-        Math.abs(o.x - (seat.x + dx)) < SEAT_EPS && Math.abs(o.y - (seat.y + dy)) < SEAT_EPS);
-      el.classList.toggle("seat--join-l", touches(-SEAT_W, 0));
-      el.classList.toggle("seat--join-r", touches(SEAT_W, 0));
-      el.classList.toggle("seat--join-t", touches(0, -SEAT_H));
-      el.classList.toggle("seat--join-b", touches(0, SEAT_H));
+      const near = (a, b) => Math.abs(a - b) < SEAT_EPS;
+      const covers = (from, len, at) => from <= at + SEAT_EPS && from + len >= at - SEAT_EPS;
+      const side = {
+        l: others.filter((o) => near(o.x + o.w, seat.x) && seatsOverlapY(o, seat)),
+        r: others.filter((o) => near(o.x, seat.x + seat.w) && seatsOverlapY(o, seat)),
+        t: others.filter((o) => near(o.y + o.h, seat.y) && seatsOverlapX(o, seat)),
+        b: others.filter((o) => near(o.y, seat.y + seat.h) && seatsOverlapX(o, seat))
+      };
+      const byY = (list, y) => list.some((o) => covers(o.y, o.h, y));
+      const byX = (list, x) => list.some((o) => covers(o.x, o.w, x));
+      const top = seat.y, bottom = seat.y + seat.h, left = seat.x, right = seat.x + seat.w;
+      el.classList.toggle("seat--sq-tl", byY(side.l, top) || byX(side.t, left));
+      el.classList.toggle("seat--sq-tr", byY(side.r, top) || byX(side.t, right));
+      el.classList.toggle("seat--sq-bl", byY(side.l, bottom) || byX(side.b, left));
+      el.classList.toggle("seat--sq-br", byY(side.r, bottom) || byX(side.b, right));
       return el;
     }));
   }
 
-  function placeEl(el, { x, y }) {
-    el.style.left = `${(x / SEAT_ROOM_W) * 100}%`;
-    el.style.top = `${(y / SEAT_ROOM_H) * 100}%`;
+  const seatsOverlapY = (a, b) => a.y < b.y + b.h - SEAT_EPS && b.y < a.y + a.h - SEAT_EPS;
+  const seatsOverlapX = (a, b) => a.x < b.x + b.w - SEAT_EPS && b.x < a.x + a.w - SEAT_EPS;
+
+  function placeEl(el, r) {
+    el.style.left = `${(r.x / SEAT_ROOM_W) * 100}%`;
+    el.style.top = `${(r.y / SEAT_ROOM_H) * 100}%`;
+    el.style.width = `${(r.w / SEAT_ROOM_W) * 100}%`;
+    el.style.height = `${(r.h / SEAT_ROOM_H) * 100}%`;
   }
 
   async function saveSeat(id, seat) {
@@ -1074,6 +1104,16 @@ async function renderSeating(classId) {
       draw();
       showError(error, "Platz konnte nicht gespeichert werden.");
     }
+  }
+
+  /** Dreht einen Tisch um seine Mitte; rastet danach wie beim Ablegen ein. */
+  function rotate(id) {
+    const seat = seats.get(id);
+    const turned = seatRect(0, 0, !seat.rot);
+    const target = snapSeat(seatRect(
+      seat.x + (seat.w - turned.w) / 2, seat.y + (seat.h - turned.h) / 2, turned.rot), placedOthers(id));
+    if (!target) return toast("Zum Drehen ist hier kein Platz.", "error");
+    saveSeat(id, target);
   }
 
   async function autoPlace() {
@@ -1101,6 +1141,8 @@ async function renderSeating(classId) {
     const startX = event.clientX;
     const startY = event.clientY;
     const from = seats.get(id);
+    // Aus der Ablage kommen Tische quer in den Raum.
+    const size = from ?? seatRect(0, 0, false);
     let floating = null;
     let offX = 0;
     let offY = 0;
@@ -1110,13 +1152,13 @@ async function renderSeating(classId) {
     function begin() {
       const room = roomEl.getBoundingClientRect();
       const scale = room.width / SEAT_ROOM_W;
-      const w = SEAT_W * scale;
-      const hgt = SEAT_H * scale;
+      const w = size.w * scale;
+      const hgt = size.h * scale;
       const rect = el.getBoundingClientRect();
       // Aus dem Raum: Griffpunkt behalten. Aus der Ablage: Tisch mittig greifen.
       offX = from ? startX - rect.left : w / 2;
       offY = from ? startY - rect.top : hgt / 2;
-      floating = h("div", { class: "seat seat--floating" },
+      floating = h("div", { class: `seat seat--floating${size.rot ? " seat--rot" : ""}` },
         h("span", { class: "seat__name" }, nameOf.get(id)));
       floating.style.width = `${w}px`;
       floating.style.height = `${hgt}px`;
@@ -1140,7 +1182,7 @@ async function renderSeating(classId) {
       overRoom = ev.clientX >= room.left && ev.clientX <= room.right &&
                  ev.clientY >= room.top && ev.clientY <= room.bottom;
       target = overRoom
-        ? snapSeat({ x: (left - room.left) / scale, y: (top - room.top) / scale }, placedOthers(id))
+        ? snapSeat(seatRect((left - room.left) / scale, (top - room.top) / scale, size.rot), placedOthers(id))
         : null;
 
       ghostEl.hidden = !target;
@@ -1153,7 +1195,11 @@ async function renderSeating(classId) {
       el.removeEventListener("pointerup", finish);
       el.removeEventListener("pointercancel", finish);
       ghostEl.hidden = true;
-      if (!floating) return;
+      if (!floating) {
+        // Antippen ohne Ziehen dreht einen Tisch im Raum.
+        if (ev.type === "pointerup" && from) rotate(id);
+        return;
+      }
       floating.remove();
       el.classList.remove("seat--lifted");
       if (ev.type === "pointercancel") return;

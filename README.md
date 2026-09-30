@@ -67,13 +67,16 @@ Unter **Klassen** → Klasse öffnen → **Sitzplan**.
   Loslassen noch eine kleine Lücke war – so entstehen Zweiertische,
   Reihen und Blöcke. Ohne direkten Nachbarn richtet sich ein Tisch an den
   Reihen und Spalten der übrigen Tische aus.
+- **Antippen** dreht einen Tisch **hochkant** (und zurück). Hochkant
+  stehende Tische rasten ebenfalls bündig an, z. B. an der Stirnseite
+  einer Tischreihe oder mittig unter einem Zweiertisch.
 - Auf einem belegten Tisch losgelassen, rutscht er auf den nächsten freien
   Nachbarplatz. Zurück in die Ablage ziehen gibt den Platz frei.
 - **Rest automatisch platzieren** setzt alle Übrigen in Zweierreihen von
   vorne nach hinten, **Alle leeren** räumt den Raum.
 
-Einmalig muss dafür `supabase/migrations/0004_seating.sql` im Supabase
-SQL-Editor ausgeführt werden.
+Einmalig müssen dafür `supabase/migrations/0004_seating.sql` und
+`0005_seat_rotation.sql` im Supabase SQL-Editor ausgeführt werden.
 
 ---
 

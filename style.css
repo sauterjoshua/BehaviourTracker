@@ -847,11 +847,8 @@ details summary { cursor: pointer; }
   text-align: center;
   overflow: hidden;
 }
-.seat-room .seat {
-  width: calc(100% / 10);
-  height: calc(100% / 11.667);
-  font-size: clamp(.6rem, 1.25cqw, 1.05rem);
-}
+/* Position und Groesse setzt app.js (placeEl) prozentual. */
+.seat-room .seat { font-size: clamp(.6rem, 1.25cqw, 1.05rem); }
 .seat__name {
   font-weight: 700;
   line-height: 1.1;
@@ -862,10 +859,14 @@ details summary { cursor: pointer; }
   overflow: hidden;
 }
 
-.seat--join-l { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.seat--join-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.seat--join-t { border-top-left-radius: 0; border-top-right-radius: 0; }
-.seat--join-b { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+/* Hochkant: Name senkrecht, damit er in den schmalen Tisch passt. */
+.seat--rot { padding: .4em .2em; }
+.seat--rot .seat__name { writing-mode: vertical-rl; }
+
+.seat--sq-tl { border-top-left-radius: 0; }
+.seat--sq-tr { border-top-right-radius: 0; }
+.seat--sq-bl { border-bottom-left-radius: 0; }
+.seat--sq-br { border-bottom-right-radius: 0; }
 
 .seat--lifted { opacity: .3; }
 .seat--floating {
@@ -882,8 +883,6 @@ details summary { cursor: pointer; }
 
 .seat-ghost {
   position: absolute;
-  width: calc(100% / 10);
-  height: calc(100% / 11.667);
   border: 2px dashed var(--accent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
