@@ -551,6 +551,22 @@ const api = {
     return unwrap(await sb.from("students").delete().eq("id", id));
   },
 
+  async listSeats(classId) {
+    return unwrap(await sb.from("students")
+      .select("id, name, seat_x, seat_y").eq("class_id", classId).order("name"));
+  },
+
+  async setSeat(studentId, seat) {
+    return unwrap(await sb.from("students")
+      .update({ seat_x: seat?.x ?? null, seat_y: seat?.y ?? null })
+      .eq("id", studentId));
+  },
+
+  async clearSeats(classId) {
+    return unwrap(await sb.from("students")
+      .update({ seat_x: null, seat_y: null }).eq("class_id", classId));
+  },
+
   async getStudent(id) {
     return unwrap(await sb.from("students").select("id, name, class_id").eq("id", id).maybeSingle());
   },
@@ -651,6 +667,7 @@ const ROUTES = [
   { match: (p) => p.length === 0, view: (p) => renderMenu() },
   { match: (p) => p[0] === "classes" && p.length === 1, view: () => renderClassList() },
   { match: (p) => p[0] === "classes" && p[2] === "students" && p[3], view: (p) => renderStudentStats(p[1], p[3]) },
+  { match: (p) => p[0] === "classes" && p[2] === "seating" && p.length === 3, view: (p) => renderSeating(p[1]) },
   { match: (p) => p[0] === "classes" && p.length === 2, view: (p) => renderClassDetail(p[1]) },
   { match: (p) => p[0] === "lessons" && p[1] === "new", view: () => renderNewLesson() },
   { match: (p) => p[0] === "lessons" && p.length === 2, view: (p) => renderBoard(p[1]) },
@@ -836,17 +853,324 @@ async function renderClassDetail(classId) {
         h("h2", {}, "Klassenliste"),
         h("p", { class: "muted small" }, "Auf einen Namen tippen, um die Spaltenzeiten zu sehen."),
         list),
-      h("div", { class: "card" },
+      h("div", { class: "card row" },
         h("button", {
           class: "btn btn--primary",
           disabled: students.length === 0,
           onclick: () => startLessonFor(classId, cls.name)
-        }, "Unterricht mit dieser Klasse starten")))
+        }, "Unterricht mit dieser Klasse starten"),
+        h("button", {
+          class: "btn",
+          disabled: students.length === 0,
+          onclick: () => navigate(`/classes/${classId}/seating`)
+        }, "Sitzplan")))
   );
   // `autofocus` greift beim dynamischen Neuaufbau nach dem Anlegen nicht
   // zuverlaessig – deshalb explizit fokussieren, damit sich eine ganze
   // Klassenliste ohne Mausklick eintippen laesst.
   nameInput.focus();
+}
+
+/* -------------------------------------------------------------------
+   Ansicht: Sitzplan einer Klasse
+   -------------------------------------------------------------------
+   Tische werden frei per Pointer (Maus, Finger, Stift) verschoben.
+   Positionen sind virtuelle Raumeinheiten (SEAT_ROOM_W x SEAT_ROOM_H),
+   der Raum skaliert per CSS auf die verfuegbare Breite. Beim Loslassen
+   rastet ein Tisch buendig neben/ueber/unter einem Nachbarn ein, auch
+   wenn noch eine kleine Luecke war; ohne Nachbarn in Reichweite richtet
+   er sich an den Reihen und Spalten der anderen Tische aus.
+   ------------------------------------------------------------------- */
+
+const SEAT_ROOM_W = 1200;
+const SEAT_ROOM_H = 700;
+const SEAT_W = 120;
+const SEAT_H = 60;
+const SEAT_SNAP = 45;        // bis zu dieser Entfernung rastet ein Tisch am Nachbarn ein
+const SEAT_ALIGN = 14;       // Ausrichten an Reihen/Spalten anderer Tische
+const SEAT_EPS = 0.5;
+const SEAT_DRAG_START_PX = 4;
+// Automatisch platzieren: Zweiertische, vier pro Reihe, vorne (unten) beginnend.
+const SEAT_AUTO_PAIRS = 4;
+const SEAT_AUTO_AISLE = 60;
+const SEAT_AUTO_ROW_GAP = 40;
+const SEAT_AUTO_MARGIN = 20;
+
+const clampSeat = ({ x, y }) => ({
+  x: Math.min(Math.max(Math.round(x), 0), SEAT_ROOM_W - SEAT_W),
+  y: Math.min(Math.max(Math.round(y), 0), SEAT_ROOM_H - SEAT_H)
+});
+
+const seatInRoom = ({ x, y }) =>
+  x >= 0 && y >= 0 && x <= SEAT_ROOM_W - SEAT_W && y <= SEAT_ROOM_H - SEAT_H;
+
+const seatsOverlap = (a, b) =>
+  Math.abs(a.x - b.x) < SEAT_W - SEAT_EPS && Math.abs(a.y - b.y) < SEAT_H - SEAT_EPS;
+
+const seatOverlapsAny = (p, others) => others.some((o) => seatsOverlap(p, o));
+
+function nearestWithin(value, candidates, max) {
+  let best = null;
+  let bestD = max;
+  for (const c of candidates) {
+    const d = Math.abs(value - c);
+    if (d < bestD) { best = c; bestD = d; }
+  }
+  return best;
+}
+
+/** Zielposition fuer einen losgelassenen Tisch, oder null, wenn er dort
+ * einen anderen Tisch ueberdecken wuerde. */
+function snapSeat(raw, others) {
+  const p = clampSeat(raw);
+
+  // Auf einem anderen Tisch losgelassen: an den naechsten freien Nachbarplatz.
+  let best = null;
+  let bestD = seatOverlapsAny(p, others) ? SEAT_W : SEAT_SNAP;
+  for (const o of others) {
+    const candidates = [
+      { x: o.x + SEAT_W, y: o.y }, { x: o.x - SEAT_W, y: o.y },
+      { x: o.x, y: o.y + SEAT_H }, { x: o.x, y: o.y - SEAT_H }
+    ];
+    for (const c of candidates) {
+      const d = Math.hypot(p.x - c.x, p.y - c.y);
+      if (d < bestD && seatInRoom(c) && !seatOverlapsAny(c, others)) { best = c; bestD = d; }
+    }
+  }
+  if (best) return best;
+
+  const ax = nearestWithin(p.x, others.flatMap((o) => [o.x, o.x - SEAT_W, o.x + SEAT_W]), SEAT_ALIGN);
+  const ay = nearestWithin(p.y, others.flatMap((o) => [o.y, o.y - SEAT_H, o.y + SEAT_H]), SEAT_ALIGN);
+  const aligned = clampSeat({ x: ax ?? p.x, y: ay ?? p.y });
+  if (!seatOverlapsAny(aligned, others)) return aligned;
+  return seatOverlapsAny(p, others) ? null : p;
+}
+
+/** Freie Plaetze fuer "Automatisch platzieren", vorderste Reihe zuerst. */
+function autoSeatSlots(occupied) {
+  const pairW = 2 * SEAT_W;
+  const rowW = SEAT_AUTO_PAIRS * pairW + (SEAT_AUTO_PAIRS - 1) * SEAT_AUTO_AISLE;
+  const startX = Math.round((SEAT_ROOM_W - rowW) / 2);
+  const slots = [];
+  for (let y = SEAT_ROOM_H - SEAT_AUTO_MARGIN - SEAT_H; y >= 0; y -= SEAT_H + SEAT_AUTO_ROW_GAP) {
+    for (let pair = 0; pair < SEAT_AUTO_PAIRS; pair++) {
+      const x = startX + pair * (pairW + SEAT_AUTO_AISLE);
+      for (const slot of [{ x, y }, { x: x + SEAT_W, y }]) {
+        if (!seatOverlapsAny(slot, occupied)) slots.push(slot);
+      }
+    }
+  }
+  return slots;
+}
+
+async function renderSeating(classId) {
+  appEl.className = "app app--wide";
+  setChrome({ title: "Sitzplan", back: `/classes/${classId}` });
+  appEl.replaceChildren(loadingView());
+
+  const cls = await api.getClass(classId);
+  if (!cls) { toast("Klasse nicht gefunden.", "error"); return navigate("/classes"); }
+  setChrome({ title: `Sitzplan ${cls.name}`, back: `/classes/${classId}` });
+
+  let students;
+  try {
+    students = await api.listSeats(classId);
+  } catch (error) {
+    if (!isMissingFocusSchema(error)) throw error;
+    appEl.replaceChildren(
+      h("div", { class: "card stack" },
+        h("h2", {}, "Datenbank-Update fehlt"),
+        h("p", { class: "muted" },
+          "Fuer den Sitzplan muss einmalig die Migration supabase/migrations/0004_seating.sql " +
+          "im Supabase SQL-Editor ausgefuehrt werden.")));
+    return;
+  }
+
+  // Lokaler Zustand: id -> { x, y } | null
+  const seats = new Map(students.map((s) =>
+    [s.id, s.seat_x === null || s.seat_y === null ? null : { x: s.seat_x, y: s.seat_y }]));
+  const nameOf = new Map(students.map((s) => [s.id, s.name]));
+
+  const trayEl = h("div", { class: "seat-tray" });
+  const roomEl = h("div", { class: "seat-room" });
+  const ghostEl = h("div", { class: "seat-ghost", hidden: true });
+  const autoBtn = h("button", { class: "btn", type: "button", onclick: autoPlace }, "Rest automatisch platzieren");
+  const clearBtn = h("button", {
+    class: "btn btn--danger", type: "button",
+    onclick: () => confirmDelete(
+      "Alle Plaetze leeren? Die Tische kommen zurueck in die Ablage.",
+      async () => {
+        await api.clearSeats(classId);
+        for (const id of seats.keys()) seats.set(id, null);
+        draw();
+        toast("Sitzplan geleert.");
+      }, "Leeren")
+  }, "Alle leeren");
+
+  appEl.replaceChildren(
+    h("div", { class: "stack" },
+      h("div", { class: "card stack" },
+        h("div", { class: "row", style: "justify-content:space-between" },
+          h("h2", { style: "margin:0" }, "Noch ohne Platz"),
+          h("div", { class: "row" }, autoBtn, clearBtn)),
+        trayEl),
+      h("div", { class: "card seating" },
+        roomEl,
+        h("div", { class: "seating__board" }, "Tafel")),
+      h("p", { class: "muted small" },
+        "Tische in den Raum ziehen. Neben, ueber oder unter einem anderen Tisch rasten sie " +
+        "buendig ein. Zurueck in die Ablage ziehen, um einen Platz freizugeben."))
+  );
+
+  const placedOthers = (exceptId) => [...seats]
+    .filter(([id, seat]) => seat && id !== exceptId)
+    .map(([, seat]) => seat);
+
+  function seatEl(id) {
+    const el = h("div", { class: "seat", dataset: { studentId: id }, title: nameOf.get(id) },
+      h("span", { class: "seat__name" }, nameOf.get(id)));
+    el.addEventListener("pointerdown", (event) => startDrag(event, id, el));
+    return el;
+  }
+
+  function draw() {
+    const unplaced = students.filter((s) => !seats.get(s.id));
+    trayEl.replaceChildren(...(unplaced.length
+      ? unplaced.map((s) => seatEl(s.id))
+      : [h("p", { class: "muted small", style: "margin:0" }, "Alle haben einen Platz.")]));
+    autoBtn.disabled = unplaced.length === 0;
+    clearBtn.disabled = unplaced.length === students.length;
+
+    const placed = students.filter((s) => seats.get(s.id));
+    roomEl.replaceChildren(ghostEl, ...placed.map((s) => {
+      const seat = seats.get(s.id);
+      const el = seatEl(s.id);
+      placeEl(el, seat);
+      // Buendig anliegende Seiten ohne Rundung, damit Nachbarn wie ein Tisch wirken.
+      const others = placedOthers(s.id);
+      const touches = (dx, dy) => others.some((o) =>
+        Math.abs(o.x - (seat.x + dx)) < SEAT_EPS && Math.abs(o.y - (seat.y + dy)) < SEAT_EPS);
+      el.classList.toggle("seat--join-l", touches(-SEAT_W, 0));
+      el.classList.toggle("seat--join-r", touches(SEAT_W, 0));
+      el.classList.toggle("seat--join-t", touches(0, -SEAT_H));
+      el.classList.toggle("seat--join-b", touches(0, SEAT_H));
+      return el;
+    }));
+  }
+
+  function placeEl(el, { x, y }) {
+    el.style.left = `${(x / SEAT_ROOM_W) * 100}%`;
+    el.style.top = `${(y / SEAT_ROOM_H) * 100}%`;
+  }
+
+  async function saveSeat(id, seat) {
+    const before = seats.get(id);
+    seats.set(id, seat);
+    draw();
+    try {
+      await api.setSeat(id, seat);
+    } catch (error) {
+      seats.set(id, before);
+      draw();
+      showError(error, "Platz konnte nicht gespeichert werden.");
+    }
+  }
+
+  async function autoPlace() {
+    const unplaced = students.filter((s) => !seats.get(s.id));
+    const slots = autoSeatSlots(placedOthers(null));
+    const assigned = unplaced.slice(0, slots.length).map((s, i) => [s.id, slots[i]]);
+    if (!assigned.length) return toast("Im Raum ist kein freier Platz mehr.", "error");
+
+    autoBtn.disabled = true;
+    for (const [id, seat] of assigned) seats.set(id, seat);
+    draw();
+    const results = await Promise.allSettled(assigned.map(([id, seat]) => api.setSeat(id, seat)));
+    const failed = results.filter((r) => r.status === "rejected");
+    results.forEach((r, i) => { if (r.status === "rejected") seats.set(assigned[i][0], null); });
+    draw();
+    if (failed.length) showError(failed[0].reason, "Einige Plaetze konnten nicht gespeichert werden.");
+    else if (assigned.length < unplaced.length) toast("Nicht alle passen in die Reihen – den Rest bitte von Hand setzen.");
+  }
+
+  function startDrag(event, id, el) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    el.setPointerCapture(event.pointerId);
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const from = seats.get(id);
+    let floating = null;
+    let offX = 0;
+    let offY = 0;
+    let target = null;       // eingerastete Zielposition im Raum
+    let overRoom = false;
+
+    function begin() {
+      const room = roomEl.getBoundingClientRect();
+      const scale = room.width / SEAT_ROOM_W;
+      const w = SEAT_W * scale;
+      const hgt = SEAT_H * scale;
+      const rect = el.getBoundingClientRect();
+      // Aus dem Raum: Griffpunkt behalten. Aus der Ablage: Tisch mittig greifen.
+      offX = from ? startX - rect.left : w / 2;
+      offY = from ? startY - rect.top : hgt / 2;
+      floating = h("div", { class: "seat seat--floating" },
+        h("span", { class: "seat__name" }, nameOf.get(id)));
+      floating.style.width = `${w}px`;
+      floating.style.height = `${hgt}px`;
+      // Wie .seat-room .seat in style.css: clamp(.6rem, 1.25cqw, 1.05rem)
+      floating.style.fontSize = `${Math.min(Math.max(room.width * 0.0125, 9.6), 16.8)}px`;
+      document.body.append(floating);
+      el.classList.add("seat--lifted");
+    }
+
+    function onMove(ev) {
+      if (!floating) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < SEAT_DRAG_START_PX) return;
+        begin();
+      }
+      const left = ev.clientX - offX;
+      const top = ev.clientY - offY;
+      floating.style.transform = `translate(${left}px, ${top}px)`;
+
+      const room = roomEl.getBoundingClientRect();
+      const scale = room.width / SEAT_ROOM_W;
+      overRoom = ev.clientX >= room.left && ev.clientX <= room.right &&
+                 ev.clientY >= room.top && ev.clientY <= room.bottom;
+      target = overRoom
+        ? snapSeat({ x: (left - room.left) / scale, y: (top - room.top) / scale }, placedOthers(id))
+        : null;
+
+      ghostEl.hidden = !target;
+      if (target) placeEl(ghostEl, target);
+      floating.classList.toggle("seat--invalid", overRoom && !target);
+    }
+
+    function finish(ev) {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", finish);
+      el.removeEventListener("pointercancel", finish);
+      ghostEl.hidden = true;
+      if (!floating) return;
+      floating.remove();
+      el.classList.remove("seat--lifted");
+      if (ev.type === "pointercancel") return;
+
+      if (target) {
+        if (!from || from.x !== target.x || from.y !== target.y) saveSeat(id, target);
+      } else if (!overRoom && from) {
+        saveSeat(id, null);
+      }
+    }
+
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", finish);
+    el.addEventListener("pointercancel", finish);
+  }
+
+  draw();
 }
 
 /* -------------------------------------------------------------------

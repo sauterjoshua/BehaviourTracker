@@ -56,6 +56,27 @@ Kurzablauf im Unterricht:
 
 ---
 
+## Sitzplan
+
+Unter **Klassen** → Klasse öffnen → **Sitzplan**.
+
+- Oben liegen alle Schüler **ohne Platz**, darunter der Raum mit der
+  **Tafel unten**.
+- Tische werden per Maus oder Finger frei in den Raum gezogen. Neben, über
+  oder unter einem anderen Tisch rasten sie **bündig ein**, auch wenn beim
+  Loslassen noch eine kleine Lücke war – so entstehen Zweiertische,
+  Reihen und Blöcke. Ohne direkten Nachbarn richtet sich ein Tisch an den
+  Reihen und Spalten der übrigen Tische aus.
+- Auf einem belegten Tisch losgelassen, rutscht er auf den nächsten freien
+  Nachbarplatz. Zurück in die Ablage ziehen gibt den Platz frei.
+- **Rest automatisch platzieren** setzt alle Übrigen in Zweierreihen von
+  vorne nach hinten, **Alle leeren** räumt den Raum.
+
+Einmalig muss dafür `supabase/migrations/0004_seating.sql` im Supabase
+SQL-Editor ausgeführt werden.
+
+---
+
 ## Fokus-Wald (Lautstärke-Monitor)
 
 Für Stillarbeit auf dem Beamer, aufgebaut wie

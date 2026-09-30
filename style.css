@@ -788,3 +788,104 @@ details summary { cursor: pointer; }
   white-space: nowrap;
   border: 0;
 }
+
+/* ---------------- Sitzplan ---------------- */
+/* Raum in virtuellen Einheiten 1200 x 700, Tisch 120 x 60 (SEAT_* in
+   app.js). Tische sind prozentual positioniert, die Schrift skaliert per
+   Container-Einheiten mit der Raumbreite. */
+
+.seat-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  min-height: 3.2rem;
+}
+.seat-tray .seat { position: relative; width: 7.5rem; height: 3.2rem; font-size: .9rem; }
+
+.seating { padding: .75rem; }
+
+.seat-room {
+  position: relative;
+  aspect-ratio: 1200 / 700;
+  container-type: inline-size;
+  background:
+    linear-gradient(var(--border) 1px, transparent 1px) 0 0 / calc(100% / 20) calc(100% / 11.667),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px) 0 0 / calc(100% / 20) calc(100% / 11.667),
+    var(--surface-2);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+
+.seating__board {
+  margin: 0 auto;
+  width: 45%;
+  padding: .35rem 0;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: #e8f5e9;
+  background: #2e5a3c;
+  border-radius: 0 0 8px 8px;
+}
+
+.seat {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: .2em .4em;
+  background: var(--surface);
+  border: 1px solid var(--col-links-head);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  text-align: center;
+  overflow: hidden;
+}
+.seat-room .seat {
+  width: calc(100% / 10);
+  height: calc(100% / 11.667);
+  font-size: clamp(.6rem, 1.25cqw, 1.05rem);
+}
+.seat__name {
+  font-weight: 700;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.seat--join-l { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.seat--join-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.seat--join-t { border-top-left-radius: 0; border-top-right-radius: 0; }
+.seat--join-b { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
+.seat--lifted { opacity: .3; }
+.seat--floating {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  pointer-events: none;
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  border-color: var(--accent);
+}
+.seat--invalid { border-color: var(--danger); opacity: .8; }
+
+.seat-ghost {
+  position: absolute;
+  width: calc(100% / 10);
+  height: calc(100% / 11.667);
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+}
