@@ -5,7 +5,7 @@ der Aufsichtsbehörde auf Anfrage vorzulegen. Bei Änderungen an App, Diensten
 oder Datenschutzerklärung mit anpassen.
 
 - **Stand:** 1. Oktober 2026
-- **Verantwortlicher / Auftragsverarbeiter:** {{NAME}}, {{STRASSE}}, {{PLZ_ORT}}, {{EMAIL}}
+- **Verantwortlicher / Auftragsverarbeiter:** [wird ergänzt], [wird ergänzt], [wird ergänzt], [wird ergänzt]
 - **Datenschutzbeauftragter:** nicht benannt (keine Pflicht nach Art. 37 DSGVO / § 38 BDSG)
 
 ---

@@ -8,6 +8,11 @@ if grep -l '{{[A-Z_]*}}' ./*.html; then
   exit 1
 fi
 
+# Erinnerung, solange Angaben fehlen (Seite noch nicht oeffentlich beworben).
+if grep -l '\[wird ergänzt\]' ./*.html; then
+  echo "Hinweis: Angaben '[wird ergänzt]' in den oben genannten Seiten vor einer oeffentlichen Nutzung ausfuellen." >&2
+fi
+
 cat > config.js << CONF
 export const CONFIG = {
   SUPABASE_URL: "$SUPABASE_URL",

@@ -186,8 +186,13 @@ SQL-Editor ausgeführt werden.
   (inkl. Vereinbarung zur Auftragsverarbeitung nach Art. 28 DSGVO für
   Schulen) liegen als `impressum.html`, `datenschutz.html` und
   `nutzungsbedingungen.html` im Repo und sind im Footer jeder Seite verlinkt.
-  Solange dort Platzhalter wie `{{NAME}}` stehen, brechen beide Deploys
-  (GitHub Actions und Netlify-`build.sh`) bewusst ab.
+  Platzhalter wie `{{NAME}}` lassen beide Deploys (GitHub Actions und
+  Netlify-`build.sh`) bewusst abbrechen.
+- **Offen:** Name, Anschrift, E-Mail und Telefon des Anbieters stehen noch als
+  „[wird ergänzt]“ in Impressum, Datenschutzerklärung, Nutzungsbedingungen und
+  `docs/verarbeitungsverzeichnis.md`. Die Seite läuft bisher nicht öffentlich
+  oder kommerziell; **vor einer öffentlichen Nutzung ausfüllen.** Jeder Deploy
+  gibt dazu eine Warnung aus.
 - Bei der Registrierung müssen die Nutzungsbedingungen akzeptiert werden;
   Fassung und Zeitpunkt landen in den `user_metadata` des Kontos.
 - Unter **Konto & Daten** im Menü lassen sich alle Daten als JSON

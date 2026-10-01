@@ -30,6 +30,10 @@ jobs:
             echo "::error::Platzhalter ({{...}}) in Impressum/Datenschutz/Nutzungsbedingungen ausfuellen."
             exit 1
           fi
+          # Erinnerung, solange Angaben fehlen (Seite noch nicht oeffentlich beworben).
+          if grep -l '\[wird ergänzt\]' ./*.html; then
+            echo "::warning::Impressum/Datenschutz/Nutzungsbedingungen: Angaben '[wird ergänzt]' vor einer oeffentlichen Nutzung ausfuellen."
+          fi
 
       - name: config.js aus Repository-Secrets erzeugen
         env:
