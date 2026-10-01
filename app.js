@@ -401,6 +401,8 @@ function renderAuth() {
 
   let mode = "signin";
   let captchaWidget = null;
+  // Der Button "Kostenlos starten" der Startseite verlinkt auf app.html?registrieren.
+  const wantsSignup = new URLSearchParams(window.location.search).has("registrieren");
 
   const errorBox = h("div", { class: "error-box", hidden: true });
   const emailInput = h("input", {
@@ -435,6 +437,7 @@ function renderAuth() {
   }
   tabSignin.addEventListener("click", () => setMode("signin"));
   tabSignup.addEventListener("click", () => setMode("signup"));
+  if (wantsSignup) setMode("signup");
 
   function fail(message) {
     errorBox.textContent = message;
@@ -502,9 +505,11 @@ function renderAuth() {
   appEl.replaceChildren(
     h("div", { class: "auth" },
       h("div", { class: "auth__brand" },
+        brandMark(),
         h("h1", {}, "BehaviourTracker"),
-        h("p", { class: "muted" }, "Verhalten im Unterricht sichtbar machen.")),
-      form)
+        h("p", { class: "muted" }, "Gutes Arbeiten im Unterricht sichtbar machen.")),
+      form,
+      h("a", { class: "auth__home", href: "./" }, "\u2190 Zur Startseite"))
   );
 
   if (captchaEnabled()) {
@@ -1661,6 +1666,14 @@ const treesLabel = (n) => (n === 1 ? "1 Baum" : `${n} Baeume`);
 /* ---------- Baeume (SVG) ---------- */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Logo wie auf der Startseite (index.html): drei Balken in den Zustandsfarben. */
+function brandMark() {
+  return svg("svg", { class: "brand-mark", viewBox: "0 0 32 32", "aria-hidden": "true" },
+    svg("rect", { class: "brand-mark__a", x: 3, y: 17, width: 7, height: 12, rx: 2 }),
+    svg("rect", { class: "brand-mark__b", x: 12.5, y: 10, width: 7, height: 19, rx: 2 }),
+    svg("rect", { class: "brand-mark__c", x: 22, y: 3, width: 7, height: 26, rx: 2 }));
+}
 
 /** Wie h(), nur fuer SVG-Elemente. */
 function svg(tag, attrs = {}, ...children) {

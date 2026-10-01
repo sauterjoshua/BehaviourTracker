@@ -6,7 +6,10 @@
 
 ## Anmelden
 
-1. Link oben öffnen.
+1. Link oben öffnen – das ist die Startseite. Oben rechts auf **Anmelden**
+   (oder auf **Kostenlos starten**, um ein Konto anzulegen). Die App selbst
+   liegt unter `app.html`; alte Lesezeichen auf `…/#/…` werden automatisch
+   dorthin weitergeleitet.
 2. Mit E-Mail und Passwort anmelden (bzw. beim ersten Mal registrieren).
 3. Nach dem Login erscheint das Menü mit **Klassen**, **Unterrichte** und
    **Fokus-Wald**.
