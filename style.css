@@ -97,65 +97,170 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; letter-spacing: -.01em; }
 a { color: var(--accent); }
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
+/* ---------------- Layout-Raster (gemeinsam mit landing.css) ---------------- */
+/* Abstaende folgen einem 8px-Raster, Breite und Seitenrand wie auf der
+   Startseite, damit App und Startseite wie aus einem Guss wirken. */
+
+:root {
+  --container: 1120px;
+  --gutter:    16px;
+  --header-h:  64px;
+  --bg-glass:  rgba(250, 250, 250, .85);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg-glass: rgba(15, 15, 16, .85); }
+}
+@media (min-width: 640px)  { :root { --gutter: 24px; } }
+@media (min-width: 1024px) { :root { --gutter: 32px; } }
+
+/* Kein grauer Tap-Blitz und keine Doppeltipp-Zoom-Verzoegerung auf Tablets */
+button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
 /* ---------------- Topbar ---------------- */
 
 .topbar {
   position: sticky;
   top: 0;
   z-index: 20;
+  background: var(--bg-glass);
+  border-bottom: 1px solid var(--border);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  backdrop-filter: saturate(180%) blur(12px);
+}
+.topbar__inner {
   display: flex;
   align-items: center;
-  gap: .75rem;
-  padding: .6rem 1rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  height: var(--header-h);
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
 }
+.topbar--wide .topbar__inner { max-width: none; }
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.0625rem;
+  letter-spacing: -.01em;
+  color: var(--text);
+  text-decoration: none;
+  transition: opacity var(--t);
+}
+.brand:hover { opacity: .75; }
+.brand .brand-mark { width: 24px; height: 24px; }
+.topbar__brand { flex: none; }
 
 .topbar__back {
   flex: none;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 40px;
+  height: 40px;
   font-size: 1.25rem;
   line-height: 1;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--text);
   cursor: pointer;
   transition: background-color var(--t);
 }
-.topbar__back:hover { background: var(--border); }
+.topbar__back:hover { background: var(--surface-2); }
 .topbar__back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* Aktuelle Ansicht als Brotkrume hinter dem Logo: "BehaviourTracker / Klassen" */
 .topbar__title {
   flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
+  font-size: .9375rem;
+  font-weight: 500;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.topbar__title:not(:empty)::before { content: "/"; margin-right: 12px; color: var(--border); }
+.topbar--home .topbar__title { visibility: hidden; }
 
-.topbar__actions { display: flex; align-items: center; gap: .6rem; flex: none; }
-.topbar__user { color: var(--text-muted); font-size: .85rem; }
-@media (max-width: 560px) { .topbar__user { display: none; } }
+.topbar__actions { display: flex; align-items: center; gap: 12px; flex: none; }
+.topbar__user { color: var(--text-muted); font-size: .875rem; }
+@media (max-width: 719px) { .topbar__user { display: none; } }
+@media (max-width: 479px) { .topbar__brandname { display: none; } }
 
 /* ---------------- Layout ---------------- */
 
-.app { padding: 1.25rem 1rem 3rem; max-width: 1100px; margin: 0 auto; }
-.app--wide { max-width: none; }
+.app { padding: 32px var(--gutter) 64px; max-width: var(--container); margin: 0 auto; }
+.app--wide { max-width: none; padding-top: 24px; }
 
 .loading { color: var(--text-muted); padding: 2rem 0; text-align: center; }
 
-.stack > * + * { margin-top: 1rem; }
+.stack > * + * { margin-top: 24px; }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 1rem 1.15rem;
+  padding: 24px;
+}
+.card > h2, .card > .row > h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 8px; }
+.card > p.muted + * { margin-top: 16px; }
+@media (max-width: 639px) { .card { padding: 16px; } }
+
+/* Seitenkopf wie die Abschnittskoepfe der Startseite */
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin-bottom: 32px;
+}
+.page-head__text { flex: 1 1 22rem; min-width: 0; }
+.page-head .eyebrow { margin-bottom: 16px; }
+.page-head h2 {
+  margin: 0;
+  font-size: clamp(1.75rem, 1.25rem + 1.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -.025em;
+  text-wrap: balance;
+}
+.page-head__lead { margin: 12px 0 0; max-width: 60ch; color: var(--text-muted); font-size: 1.0625rem; text-wrap: pretty; }
+.page-head__actions { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: .875rem;
+  font-weight: 500;
+}
+.eyebrow::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--col-mitte-head);
+}
+
+.icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .muted { color: var(--text-muted); }
@@ -295,17 +400,17 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 .app-footer a:hover { color: var(--text); text-decoration: underline; }
 .app-footer a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
-.account { margin-top: 1.5rem; }
-.account h2 { font-size: 1.1rem; }
+.account { margin-top: 48px; }
 
 /* ---------------- Menue ---------------- */
+/* Kacheln wie die Funktions-Karten der Startseite */
 
-.menu { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); margin-top: 1rem; }
+.menu { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
 .menu__item {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 1.5rem;
+  padding: 32px;
   font: inherit;
   color: var(--text);
   background: var(--surface);
@@ -315,10 +420,22 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
   cursor: pointer;
   transition: box-shadow var(--t), transform var(--t), border-color var(--t);
 }
-.menu__item:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
 .menu__item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.menu__item h2 { font-size: 1.25rem; margin-bottom: .25rem; }
-.menu__item p { margin: 0; color: var(--text-muted); font-size: .9rem; }
+.menu__item h3 { font-size: 1.25rem; font-weight: 600; margin-bottom: 8px; }
+.menu__item p { margin: 0; color: var(--text-muted); text-wrap: pretty; }
+@media (max-width: 639px) { .menu__item { padding: 24px; } }
+
+.feature__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 
 /* ---------------- Listen ---------------- */
 
@@ -326,17 +443,21 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 .list__item {
   display: flex;
   align-items: center;
-  gap: .75rem;
-  padding: .75rem .25rem;
+  gap: 12px;
+  padding: 12px 8px;
+  margin: 0 -8px;
   border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--t);
 }
 .list__item:last-child { border-bottom: none; }
 .list__main {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 40px;
   text-align: left;
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text);
   background: none;
   border: none;
@@ -344,9 +465,26 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
   cursor: pointer;
   transition: color var(--t);
 }
-.list__main:hover { color: var(--accent); }
 .list__main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.list__sub { display: block; font-weight: 400; font-size: .825rem; color: var(--text-muted); }
+.list__sub { display: block; font-weight: 400; font-size: .875rem; color: var(--text-muted); }
+
+/* Hover-Effekte nur fuer Maus/Stift: auf Touch-Geraeten "kleben" sie sonst
+   nach dem Antippen. */
+@media (hover: hover) {
+  .menu__item:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--text-muted); }
+  .list__item:has(.list__main):hover { background: var(--surface-2); }
+  .list__main:hover { color: var(--accent); }
+}
+
+/* Touch-Bedienung: Ziele mindestens 44px (Apple HIG / WCAG 2.5.5) */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn--sm { min-height: 40px; padding: .4rem .8rem; }
+  .btn--icon { width: 44px; }
+  .topbar__back { width: 44px; height: 44px; }
+  .list__main { min-height: 48px; }
+  .input, select.input { min-height: 44px; }
+}
 
 .badge {
   flex: none;
@@ -398,7 +536,8 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 }
 .column--mitte  .column__head { color: var(--col-mitte-head); }
 .column--rechts .column__head { color: var(--col-rechts-head); }
-.column__count { float: right; font-weight: 500; opacity: .75; }
+.column__head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.column__count { flex: none; font-weight: 500; opacity: .75; }
 
 .column__body {
   flex: 1 1 auto;
@@ -442,21 +581,37 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow);
-  cursor: grab;
   user-select: none;
+  -webkit-user-select: none;
   text-align: center;
   overflow: hidden;
   aspect-ratio: 1 / 1;
   /* font-size wird per JS gesetzt (layoutBoard() in app.js), abhaengig von
      der berechneten Boxgroesse, nie unter der Mindestschriftgroesse. */
 }
+/* Kanban: Ziehen per Pointer Events; touch-action none, damit der Finger
+   die Karte bewegt statt die Seite zu scrollen. */
+.student--draggable { cursor: grab; touch-action: none; }
 .student--dragging { opacity: .45; }
+.student--floating {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  margin: 0;
+  pointer-events: none;
+  cursor: grabbing;
+  opacity: .95;
+  box-shadow: var(--shadow-lg);
+  border-color: var(--accent);
+}
 .student--busy { opacity: .6; pointer-events: none; }
 
 .student__name {
+  max-width: 100%;
   font-weight: 700;
   letter-spacing: -.01em;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   line-height: 1.15;
 }
 
@@ -476,17 +631,20 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 
 .stats__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: .6rem;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 16px;
 }
 .stat {
-  padding: .7rem .85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
 }
-.stat__label { font-size: .78rem; color: var(--text-muted); }
-.stat__value { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat__label { font-size: .875rem; color: var(--text-muted); }
+.stat__value { order: -1; font-size: 1.75rem; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 
 .table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .table th, .table td { padding: .5rem .4rem; text-align: left; border-bottom: 1px solid var(--border); }
@@ -578,6 +736,191 @@ details summary { cursor: pointer; }
 .reward-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; }
 .reward-form .field { flex: 1 1 14rem; margin-bottom: 0; }
 .reward-form .field--num { flex: 0 1 7rem; }
+
+/* Baum-Steckbrief */
+
+.treefact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px 24px;
+  align-items: start;
+  padding: 16px 24px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.treefact__pic {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 8px 8px 0;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(to bottom, var(--sky-top), var(--sky-bottom) 70%, var(--meadow) 70%);
+}
+.treefact__kicker { margin: 0 0 4px; color: var(--accent); font-size: .8125rem; font-weight: 600; }
+.treefact h3 { margin: 0 0 8px; font-size: 1.125rem; font-weight: 600; }
+.treefact__latin { margin-left: 8px; color: var(--text-muted); font-size: .875rem; font-weight: 400; font-style: italic; }
+.treefact__chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
+.treefact__chips li {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: .8125rem;
+  font-weight: 500;
+}
+.treefact__text { margin: 0; text-wrap: pretty; }
+.treefact__note { margin: 8px 0 0; color: var(--text-muted); font-size: .875rem; }
+@media (max-width: 479px) {
+  .treefact { grid-template-columns: 1fr; padding: 16px; }
+  .treefact__pic { justify-self: start; }
+}
+
+.goal-fact { margin: 0 0 24px; }
+
+/* Alle Arten in Wachstumsreihenfolge (offenes Ziel) */
+.ladder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ladder li { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 4.5rem; font-size: .8125rem; }
+.ladder span { color: var(--text-muted); }
+
+/* ---------------- Waelder-Landschaft ---------------- */
+
+:root {
+  --sky-top:    #dcefff;
+  --sky-bottom: #f3f9ec;
+  --meadow:     #bfe0a0;
+  --meadow-2:   #a5d184;
+  --sign:       #8a5a33;
+  --sign-text:  #fff8ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sky-top:    #0c1a2b;
+    --sky-bottom: #1a2a2a;
+    --meadow:     #22422a;
+    --meadow-2:   #1a3521;
+    --sign:       #6b4426;
+  }
+}
+
+.landscape {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(to bottom, var(--sky-top), var(--sky-bottom));
+  cursor: grab;
+  -webkit-overflow-scrolling: touch;
+}
+.landscape.is-dragging { cursor: grabbing; user-select: none; }
+.landscape:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.landscape__track {
+  display: flex;
+  align-items: flex-end;
+  gap: 120px;
+  width: max-content;
+  min-width: 100%;
+  /* Seitlicher Leerraum, damit auch der erste und letzte Wald mittig stehen koennen */
+  padding: 24px max(48px, calc(50vw - 260px)) 36px;
+  background: linear-gradient(to bottom, transparent calc(100% - 52px), var(--meadow) calc(100% - 52px), var(--meadow-2));
+}
+.landscape--compact { cursor: default; }
+.card > .landscape, .reward + .landscape { margin-top: 16px; }
+.landscape--compact .landscape__track { justify-content: center; padding: 24px 24px 28px; }
+.landscape--compact .grove__sign { display: none; }
+
+.grove { display: flex; flex-direction: column; align-items: center; flex: none; }
+.grove__sign {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 6px 16px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--sign);
+  color: var(--sign-text);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .18), var(--shadow);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.grove__sign strong { font-size: 1.125rem; letter-spacing: -.01em; }
+.grove__sign span { font-size: .75rem; opacity: .85; font-variant-numeric: tabular-nums; }
+
+.grove__plot { position: relative; }
+.grove__plot::before {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -12px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(40, 80, 30, .30), transparent);
+}
+.grove__tree {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transform-origin: 50% 92%;
+  transition: transform var(--t), filter var(--t);
+}
+.grove__tree .tree { width: 100%; height: 100%; }
+.grove__tree:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.grove__tree.is-selected { filter: drop-shadow(0 0 6px rgba(253, 224, 71, .95)); transform: scale(1.06); }
+@media (hover: hover) {
+  .grove__tree:hover { transform: scale(1.08); }
+}
+.grove__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: .875rem;
+}
+.grove__empty .tree { width: 72px; height: 86px; }
+
+.walk__nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.chips { display: flex; gap: 8px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px; }
+.chip {
+  flex: none;
+  min-height: 36px;
+  padding: 4px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: .9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--t), color var(--t), border-color var(--t);
+}
+.chip[aria-current="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) { .chip { min-height: 44px; } }
+
+.walk__info { margin-top: 16px; }
+.walk__info:empty { display: none; }
+.walk__hint { margin: 0; text-align: center; color: var(--text-muted); font-size: .9375rem; }
+
+.lexicon { margin-top: 64px; }
+.lexicon h2 { font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem); font-weight: 700; letter-spacing: -.02em; }
+.lexicon > p { max-width: 60ch; margin: 0 0 24px; }
+.lexicon__grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr)); }
 
 /* Baum-Grafik (SVG, viewBox 0 0 200 240) */
 
@@ -677,6 +1020,8 @@ details summary { cursor: pointer; }
   font-variant-numeric: tabular-nums;
 }
 .focus__goal { margin-top: .4rem; font-size: 1.05rem; opacity: .8; }
+.focus__head { min-width: 0; flex: 1 1 18rem; }
+.focus__fact { max-width: 46ch; margin-top: .6rem; font-size: clamp(.9rem, .8rem + .4vw, 1.1rem); line-height: 1.45; opacity: .7; text-wrap: pretty; }
 
 .focus__panel {
   display: flex;
@@ -788,6 +1133,8 @@ details summary { cursor: pointer; }
 .celebrate__panel .tree { margin: 0 auto .5rem; }
 .celebrate__panel h2 { font-size: 2rem; }
 .celebrate__reward { font-weight: 600; color: #fde047; }
+.celebrate__fact { margin: 0 0 1rem; font-size: .95rem; line-height: 1.45; opacity: .85; text-wrap: pretty; }
+.celebrate__panel h2 { text-wrap: balance; }
 
 .confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .confetti span {
@@ -924,7 +1271,7 @@ details summary { cursor: pointer; }
   overflow: hidden;
 }
 /* Position und Groesse setzt app.js (placeEl) prozentual. */
-.seat-room .seat { font-size: clamp(.6rem, 1.25cqw, 1.05rem); }
+.seat-room .seat { font-size: clamp(.7rem, 1.25cqw, 1.05rem); }
 .seat__name {
   font-weight: 700;
   line-height: 1.1;

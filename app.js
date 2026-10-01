@@ -149,6 +149,37 @@ function emptyView(text) {
   return h("p", { class: "empty" }, text);
 }
 
+/** Seitenkopf im Stil der Startseite: Eyebrow, grosse Ueberschrift, Lead, Aktionen. */
+function pageHead({ eyebrow = null, title, lead = null, actions = [] }) {
+  return h("header", { class: "page-head" },
+    h("div", { class: "page-head__text" },
+      eyebrow ? h("p", { class: "eyebrow" }, eyebrow) : null,
+      h("h2", {}, title),
+      lead ? h("p", { class: "page-head__lead" }, lead) : null),
+    actions.length ? h("div", { class: "page-head__actions" }, actions) : null);
+}
+
+/** Strich-Icons wie auf der Startseite (viewBox 24x24, currentColor). */
+const ICONS = {
+  klassen: ["M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1", "M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6", "M21 19v-1a4 4 0 0 0-3-3.85", "M15.5 4.15a3 3 0 0 1 0 5.7"],
+  unterricht: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
+  wald: ["M12 3 6 11h3l-4 6h14l-4-6h3z", "M12 17v4"],
+  wandern: ["M3 20h18", "M7 20l3-9 3 5 2-3 3 7", "M17 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4"]
+};
+
+function icon(name) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  el.setAttribute("class", "icon");
+  el.setAttribute("viewBox", "0 0 24 24");
+  el.setAttribute("aria-hidden", "true");
+  for (const d of ICONS[name]) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    el.append(path);
+  }
+  return el;
+}
+
 /* -------------------------------------------------------------------
    Konfiguration laden
    ------------------------------------------------------------------- */
@@ -159,7 +190,7 @@ function renderSetupHint() {
     h("div", { class: "card stack" },
       h("h2", {}, "Konfiguration fehlt"),
       h("p", { class: "muted" },
-        "Es wurde keine gueltige config.js gefunden. Lege sie auf Basis von " +
+        "Es wurde keine gültige config.js gefunden. Lege sie auf Basis von " +
         "config.example.js an und trage SUPABASE_URL sowie SUPABASE_ANON_KEY ein."),
       h("pre", { class: "small" }, "cp config.example.js config.js\n# danach die Werte eintragen")
     )
@@ -206,6 +237,26 @@ const BOARD_BOTTOM_MARGIN_PX = 16;
 const BOX_GAP_PX = 10;
 const BOX_MIN_FONT_REM = 1.1;
 const BOX_FONT_RATIO = 0.22; // Schriftgroesse als Anteil der Boxgroesse
+const BOARD_DRAG_START_PX = 6;
+
+/** Verkleinert die Schrift einzelner Boxen, bis der Name hineinpasst –
+ * lange Namen werden so nicht mitten im Wort umbrochen ("Quenti-n"). */
+function fitNames(cards, minPx) {
+  for (const card of cards) {
+    const nameEl = card.querySelector(".student__name");
+    if (!nameEl) continue;
+    for (let pass = 0; pass < 3; pass++) {
+      const ratio = Math.min(
+        nameEl.clientWidth / Math.max(1, nameEl.scrollWidth),
+        card.clientHeight / Math.max(1, card.scrollHeight));
+      if (ratio >= 0.999) break;
+      const size = parseFloat(card.style.fontSize) || 16;
+      const next = Math.max(minPx, size * ratio * 0.97);
+      if (next >= size) break;
+      card.style.fontSize = `${next}px`;
+    }
+  }
+}
 
 /** Groesste quadratische Boxgroesse, mit der `count` Kacheln ohne
  * Ueberlauf in width x height passen (Rasterberechnung wie bei
@@ -285,6 +336,7 @@ function layoutBoard(boardEl) {
     body.style.gap = `${BOX_GAP_PX}px`;
     body.style.overflowY = overflowY;
     cards.forEach((card) => { card.style.fontSize = `${fontPx}px`; });
+    fitNames(cards, minFontPx * 0.75);
   });
 }
 
@@ -315,6 +367,7 @@ function layoutStudentGrid(gridEl) {
   gridEl.style.gridAutoRows = `${layout.size}px`;
   gridEl.style.gap = `${BOX_GAP_PX}px`;
   cards.forEach((card) => { card.style.fontSize = `${fontPx}px`; });
+  fitNames(cards, 8);
 }
 
 /* -------------------------------------------------------------------
@@ -487,10 +540,10 @@ function renderAuth() {
     const password = String(passwordInput.value);
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-      return fail("Bitte eine gueltige E-Mail-Adresse eingeben.");
+      return fail("Bitte eine gültige E-Mail-Adresse eingeben.");
     }
     if (password.length < 8) return fail("Das Passwort muss mindestens 8 Zeichen lang sein.");
-    if (password.length > 72) return fail("Das Passwort darf hoechstens 72 Zeichen lang sein.");
+    if (password.length > 72) return fail("Das Passwort darf höchstens 72 Zeichen lang sein.");
     if (mode === "signup" && !termsInput.checked) {
       return fail("Bitte zuerst die Nutzungsbedingungen akzeptieren.");
     }
@@ -498,7 +551,7 @@ function renderAuth() {
     let captchaToken;
     if (captchaEnabled()) {
       captchaToken = captchaWidget !== null ? window.hcaptcha.getResponse(captchaWidget) : "";
-      if (!captchaToken) return fail("Bitte zuerst das Captcha loesen.");
+      if (!captchaToken) return fail("Bitte zuerst das Captcha lösen.");
     }
 
     submitBtn.disabled = true;
@@ -513,7 +566,7 @@ function renderAuth() {
         });
         if (error) throw error;
         if (!data.session) {
-          toast("Konto erstellt. Bitte E-Mail bestaetigen und danach anmelden.");
+          toast("Konto erstellt. Bitte E-Mail bestätigen und danach anmelden.");
           setMode("signin");
         }
       } else {
@@ -729,7 +782,10 @@ function parseRoute() {
 
 function setChrome({ title, back = null, showUser = true }) {
   topbarEl.hidden = false;
-  topbarTitleEl.textContent = title;
+  // Breite und Brotkrume der Kopfzeile folgen der Ansicht.
+  topbarEl.classList.toggle("topbar--wide", appEl.classList.contains("app--wide"));
+  topbarEl.classList.toggle("topbar--home", !back);
+  topbarTitleEl.textContent = back ? title : "";
   topbarUserEl.textContent = showUser && state.teacher ? state.teacher.nickname : "";
   if (back) {
     backBtn.hidden = false;
@@ -750,6 +806,7 @@ const ROUTES = [
   { match: (p) => p[0] === "lessons" && p.length === 2, view: (p) => renderBoard(p[1]) },
   { match: (p) => p[0] === "lessons" && p.length === 1, view: () => renderLessonList() },
   { match: (p) => p[0] === "focus" && p.length === 1, view: () => renderFocusHome() },
+  { match: (p) => p[0] === "focus" && p[1] === FOCUS_WALK, view: () => renderForestWalk() },
   { match: (p) => p[0] === "focus" && p.length === 2, view: (p) => renderFocusRoom(p[1]) }
 ];
 
@@ -791,20 +848,22 @@ async function router() {
 function renderMenu() {
   appEl.className = "app";
   setChrome({ title: "BehaviourTracker" });
+  const item = (iconName, title, text, hash) =>
+    h("button", { class: "menu__item", type: "button", onclick: () => navigate(hash) },
+      h("span", { class: "feature__icon" }, icon(iconName)),
+      h("h3", {}, title),
+      h("p", {}, text));
   appEl.replaceChildren(
     h("div", {},
-      h("h2", {}, `Hallo ${state.teacher.nickname}`),
-      h("p", { class: "muted" }, "Was moechtest du tun?"),
+      pageHead({
+        eyebrow: formatDate(new Date()),
+        title: `Hallo ${state.teacher.nickname}`,
+        lead: "Was möchtest du tun?"
+      }),
       h("div", { class: "menu" },
-        h("button", { class: "menu__item", onclick: () => navigate("/classes") },
-          h("h2", {}, "Klassen"),
-          h("p", {}, "Klassen anlegen, Schuelerinnen und Schueler verwalten und Zeiten auswerten.")),
-        h("button", { class: "menu__item", onclick: () => navigate("/lessons") },
-          h("h2", {}, "Unterrichte"),
-          h("p", {}, "Laufende und vergangene Unterrichte oeffnen oder einen neuen starten.")),
-        h("button", { class: "menu__item", onclick: () => navigate("/focus") },
-          h("h2", {}, "Fokus-Wald"),
-          h("p", {}, "Lautstaerke-Monitor fuer den Beamer: Ist die Klasse ruhig, waechst ein Baum im Klassenwald."))),
+        item("klassen", "Klassen", "Klassen anlegen, Schülerinnen und Schüler verwalten und Zeiten auswerten.", "/classes"),
+        item("unterricht", "Unterrichte", "Laufende und vergangene Unterrichte öffnen oder einen neuen starten.", "/lessons"),
+        item("wald", "Fokus-Wald", "Lautstärke-Monitor für den Beamer: Ist die Klasse ruhig, wächst ein Baum im Klassenwald.", "/focus")),
       accountCard())
   );
 }
@@ -904,20 +963,24 @@ async function renderClassList() {
           h("button", { class: "list__main", onclick: () => navigate(`/classes/${cls.id}`) },
             cls.name,
             h("span", { class: "list__sub" },
-              count === 1 ? "1 Schuelerin/Schueler" : `${count} Schuelerinnen und Schueler`)),
+              count === 1 ? "1 Schülerin/Schüler" : `${count} Schülerinnen und Schüler`)),
           h("button", {
             class: "btn btn--sm btn--danger",
             onclick: () => confirmDelete(
-              `Klasse „${cls.name}“ wirklich loeschen? Alle Schueler, Unterrichte und Zeiten dieser Klasse gehen verloren.`,
-              async () => { await api.deleteClass(cls.id); await renderClassList(); toast("Klasse geloescht."); })
-          }, "Loeschen"));
+              `Klasse „${cls.name}“ wirklich löschen? Alle Schüler, Unterrichte und Zeiten dieser Klasse gehen verloren.`,
+              async () => { await api.deleteClass(cls.id); await renderClassList(); toast("Klasse gelöscht."); })
+          }, "Löschen"));
       }))
     : emptyView("Noch keine Klassen. Lege oben die erste an.");
 
   appEl.replaceChildren(
+    pageHead({
+      title: "Klassen",
+      lead: "Klasse anlegen, Namen eintragen – danach kannst du Unterrichte starten, den Sitzplan bauen und im Fokus-Wald Bäume sammeln."
+    }),
     h("div", { class: "stack" },
       h("div", { class: "card" }, h("h2", {}, "Neue Klasse"), form),
-      h("div", { class: "card" }, list))
+      h("div", { class: "card" }, h("h2", {}, "Deine Klassen"), list))
   );
 }
 
@@ -940,7 +1003,7 @@ async function renderClassDetail(classId) {
     class: "input", type: "text", maxlength: "80",
     placeholder: "Vorname oder Kürzel"
   });
-  const addBtn = h("button", { class: "btn btn--primary", type: "submit" }, "Hinzufuegen");
+  const addBtn = h("button", { class: "btn btn--primary", type: "submit" }, "Hinzufügen");
 
   const form = h("form", { class: "row row--form" }, nameInput, addBtn);
   form.addEventListener("submit", async (event) => {
@@ -953,9 +1016,9 @@ async function renderClassDetail(classId) {
       await api.createStudent(classId, name);
       nameInput.value = "";
       await renderClassDetail(classId);
-      toast(`„${name}“ hinzugefuegt.`);
+      toast(`„${name}“ hinzugefügt.`);
     } catch (error) {
-      showError(error, "Schueler konnte nicht angelegt werden.");
+      showError(error, "Schüler konnte nicht angelegt werden.");
     } finally {
       addBtn.disabled = false;
     }
@@ -971,33 +1034,39 @@ async function renderClassDetail(classId) {
           h("button", {
             class: "btn btn--sm btn--danger",
             onclick: () => confirmDelete(
-              `„${student.name}“ wirklich aus der Klasse loeschen? Alle erfassten Zeiten gehen verloren.`,
-              async () => { await api.deleteStudent(student.id); await renderClassDetail(classId); toast("Schueler geloescht."); })
-          }, "Loeschen"))))
-    : emptyView("Noch keine Schuelerinnen und Schueler in dieser Klasse.");
+              `„${student.name}“ wirklich aus der Klasse löschen? Alle erfassten Zeiten gehen verloren.`,
+              async () => { await api.deleteStudent(student.id); await renderClassDetail(classId); toast("Schüler gelöscht."); })
+          }, "Löschen"))))
+    : emptyView("Noch keine Schülerinnen und Schüler in dieser Klasse.");
 
   appEl.replaceChildren(
+    pageHead({
+      eyebrow: "Klasse",
+      title: cls.name,
+      lead: students.length === 1 ? "1 Schülerin/Schüler" : `${students.length} Schülerinnen und Schüler`,
+      actions: [
+        h("button", {
+          class: "btn",
+          disabled: students.length === 0,
+          onclick: () => navigate(`/classes/${classId}/seating`)
+        }, "Sitzplan"),
+        h("button", {
+          class: "btn btn--primary",
+          disabled: students.length === 0,
+          onclick: () => startLessonFor(classId, cls.name)
+        }, "Unterricht starten")
+      ]
+    }),
     h("div", { class: "stack" },
       h("div", { class: "card" },
-        h("h2", {}, "Schuelerin / Schueler hinzufuegen"), form,
+        h("h2", {}, "Schülerin / Schüler hinzufügen"), form,
         h("p", { class: "muted small", style: "margin:.6rem 0 0" },
           "Vorname oder Kürzel reicht – je weniger Daten, desto besser. " +
           "Bitte nur mit Erlaubnis deiner Schule eintragen.")),
       h("div", { class: "card" },
         h("h2", {}, "Klassenliste"),
         h("p", { class: "muted small" }, "Auf einen Namen tippen, um die Spaltenzeiten zu sehen."),
-        list),
-      h("div", { class: "card row" },
-        h("button", {
-          class: "btn btn--primary",
-          disabled: students.length === 0,
-          onclick: () => startLessonFor(classId, cls.name)
-        }, "Unterricht mit dieser Klasse starten"),
-        h("button", {
-          class: "btn",
-          disabled: students.length === 0,
-          onclick: () => navigate(`/classes/${classId}/seating`)
-        }, "Sitzplan")))
+        list))
   );
   // `autofocus` greift beim dynamischen Neuaufbau nach dem Anlegen nicht
   // zuverlaessig – deshalb explizit fokussieren, damit sich eine ganze
@@ -1128,8 +1197,8 @@ async function renderSeating(classId) {
       h("div", { class: "card stack" },
         h("h2", {}, "Datenbank-Update fehlt"),
         h("p", { class: "muted" },
-          "Fuer den Sitzplan muessen einmalig die Migrationen supabase/migrations/0004_seating.sql " +
-          "und 0005_seat_rotation.sql im Supabase SQL-Editor ausgefuehrt werden.")));
+          "Für den Sitzplan müssen einmalig die Migrationen supabase/migrations/0004_seating.sql " +
+          "und 0005_seat_rotation.sql im Supabase SQL-Editor ausgeführt werden.")));
     return;
   }
 
@@ -1145,7 +1214,7 @@ async function renderSeating(classId) {
   const clearBtn = h("button", {
     class: "btn btn--danger", type: "button",
     onclick: () => confirmDelete(
-      "Alle Plaetze leeren? Die Tische kommen zurueck in die Ablage.",
+      "Alle Plätze leeren? Die Tische kommen zurück in die Ablage.",
       async () => {
         await api.clearSeats(classId);
         for (const id of seats.keys()) seats.set(id, null);
@@ -1165,9 +1234,9 @@ async function renderSeating(classId) {
         roomEl,
         h("div", { class: "seating__board" }, "Tafel")),
       h("p", { class: "muted small" },
-        "Tische in den Raum ziehen. An jeder Seite eines anderen Tisches rasten sie buendig ein. " +
-        "Antippen dreht einen Tisch hochkant, z. B. fuer die Stirnseite einer Tischreihe. " +
-        "Zurueck in die Ablage ziehen, um einen Platz freizugeben."))
+        "Tische in den Raum ziehen. An jeder Seite eines anderen Tisches rasten sie bündig ein. " +
+        "Antippen dreht einen Tisch hochkant, z. B. für die Stirnseite einer Tischreihe. " +
+        "Zurück in die Ablage ziehen, um einen Platz freizugeben."))
   );
 
   const placedOthers = (exceptId) => [...seats]
@@ -1263,7 +1332,7 @@ async function renderSeating(classId) {
     const failed = results.filter((r) => r.status === "rejected");
     results.forEach((r, i) => { if (r.status === "rejected") seats.set(assigned[i][0], null); });
     draw();
-    if (failed.length) showError(failed[0].reason, "Einige Plaetze konnten nicht gespeichert werden.");
+    if (failed.length) showError(failed[0].reason, "Einige Plätze konnten nicht gespeichert werden.");
     else if (assigned.length < unplaced.length) toast("Nicht alle passen in die Reihen – den Rest bitte von Hand setzen.");
   }
 
@@ -1296,8 +1365,8 @@ async function renderSeating(classId) {
         h("span", { class: "seat__name" }, nameOf.get(id)));
       floating.style.width = `${w}px`;
       floating.style.height = `${hgt}px`;
-      // Wie .seat-room .seat in style.css: clamp(.6rem, 1.25cqw, 1.05rem)
-      floating.style.fontSize = `${Math.min(Math.max(room.width * 0.0125, 9.6), 16.8)}px`;
+      // Wie .seat-room .seat in style.css: clamp(.7rem, 1.25cqw, 1.05rem)
+      floating.style.fontSize = `${Math.min(Math.max(room.width * 0.0125, 11.2), 16.8)}px`;
       document.body.append(floating);
       el.classList.add("seat--lifted");
     }
@@ -1363,7 +1432,7 @@ async function renderStudentStats(classId, studentId) {
   appEl.replaceChildren(loadingView());
 
   const student = await api.getStudent(studentId);
-  if (!student) { toast("Schueler nicht gefunden.", "error"); return navigate(`/classes/${classId}`); }
+  if (!student) { toast("Schüler nicht gefunden.", "error"); return navigate(`/classes/${classId}`); }
   setChrome({ title: student.name, back: `/classes/${classId}` });
 
   const rows = await api.studentTimes(studentId);
@@ -1413,9 +1482,10 @@ async function renderStudentStats(classId, studentId) {
           h("tr", {},
             h("td", {}, lesson.name, h("span", { class: "list__sub" }, formatDate(lesson.date))),
             COLUMNS.map((c) => h("td", { class: "num" }, formatDurationLong(lesson[c.key])))))))
-    : emptyView("Fuer diese Schuelerin / diesen Schueler wurden noch keine Zeiten erfasst.");
+    : emptyView("Für diese Schülerin / diesen Schüler wurden noch keine Zeiten erfasst.");
 
   appEl.replaceChildren(
+    pageHead({ eyebrow: "Auswertung", title: student.name }),
     h("div", { class: "stack" },
       h("div", { class: "card" },
         h("h2", {}, "Gesamtzeiten"),
@@ -1450,26 +1520,25 @@ async function renderLessonList() {
               `${lesson.classes?.name ?? "Klasse entfernt"} · ${formatDate(lesson.date)}`)),
           lesson.ended_at
             ? h("span", { class: "badge" }, "beendet")
-            : h("span", { class: "badge badge--live" }, "laeuft"),
+            : h("span", { class: "badge badge--live" }, "läuft"),
           h("button", {
             class: "btn btn--sm btn--danger btn--icon", type: "button", "aria-label": "Unterricht löschen",
             onclick: () => confirmDelete(
-              `Unterricht „${lesson.name}“ wirklich loeschen? Alle erfassten Zeiten dieses Unterrichts gehen unwiderruflich verloren.`,
-              async () => { await api.deleteLesson(lesson.id); await renderLessonList(); toast("Unterricht geloescht."); })
+              `Unterricht „${lesson.name}“ wirklich löschen? Alle erfassten Zeiten dieses Unterrichts gehen unwiderruflich verloren.`,
+              async () => { await api.deleteLesson(lesson.id); await renderLessonList(); toast("Unterricht gelöscht."); })
           }, trashIcon()))))
     : emptyView("Noch keine Unterrichte. Starte oben den ersten.");
 
   appEl.replaceChildren(
-    h("div", { class: "stack" },
-      h("div", { class: "card" },
-        h("h2", {}, "Neuer Unterricht"),
-        h("p", { class: "muted small" },
-          "Klasse auswaehlen – der Name wird automatisch aus Klasse und Datum gebildet."),
-        h("button", { class: "btn btn--primary", onclick: () => navigate("/lessons/new") },
-          "Unterricht starten")),
-      h("div", { class: "card" },
-        h("h2", {}, "Bisherige Unterrichte"),
-        list))
+    pageHead({
+      title: "Unterrichte",
+      lead: "Klasse auswählen – der Name wird automatisch aus Klasse und Datum gebildet.",
+      actions: [h("button", { class: "btn btn--primary", onclick: () => navigate("/lessons/new") },
+        "Unterricht starten")]
+    }),
+    h("div", { class: "card" },
+      h("h2", {}, "Bisherige Unterrichte"),
+      list)
   );
 }
 
@@ -1488,9 +1557,9 @@ async function renderNewLesson() {
   if (!usable.length) {
     appEl.replaceChildren(
       h("div", { class: "card stack" },
-        h("h2", {}, "Keine Klasse mit Schuelern"),
+        h("h2", {}, "Keine Klasse mit Schülern"),
         h("p", { class: "muted" },
-          "Lege zuerst eine Klasse an und trage Schuelerinnen und Schueler ein."),
+          "Lege zuerst eine Klasse an und trage Schülerinnen und Schüler ein."),
         h("button", { class: "btn btn--primary", onclick: () => navigate("/classes") }, "Zu den Klassen"))
     );
     return;
@@ -1499,9 +1568,9 @@ async function renderNewLesson() {
   const today = formatDate(new Date());
 
   appEl.replaceChildren(
+    pageHead({ title: "Unterricht starten", lead: `Der Unterricht heißt dann „[Klasse] ${today}“.` }),
     h("div", { class: "card" },
-      h("h2", {}, "Klasse waehlen"),
-      h("p", { class: "muted small" }, `Der Unterricht heisst dann „[Klasse] ${today}“.`),
+      h("h2", {}, "Klasse wählen"),
       h("ul", { class: "list" }, usable.map((cls) =>
         h("li", { class: "list__item" },
           h("button", { class: "list__main", onclick: () => startLessonFor(cls.id, cls.name) },
@@ -1515,7 +1584,7 @@ async function startLessonFor(classId, className) {
   const mode = await pickLessonMode();
   if (!mode) return;
 
-  toast(`Unterricht fuer ${className} wird gestartet…`);
+  toast(`Unterricht für ${className} wird gestartet…`);
   try {
     const lessonId = await api.startLesson(classId, mode);
     navigate(`/lessons/${lessonId}`);
@@ -1609,24 +1678,6 @@ async function renderBoard(lessonId) {
         body.append(h("p", { class: "empty small" }, "–"));
       }
 
-      // Drop-Ziel
-      body.addEventListener("dragover", (event) => {
-        // Nur direkt benachbarte Spalten sind gueltige Drop-Ziele.
-        if (!dragFrom || !isAdjacent(dragFrom, column.key)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        body.parentElement.classList.add("column--dragover");
-      });
-      body.addEventListener("dragleave", () => body.parentElement.classList.remove("column--dragover"));
-      body.addEventListener("drop", async (event) => {
-        event.preventDefault();
-        body.parentElement.classList.remove("column--dragover");
-        const studentId = event.dataTransfer.getData("text/plain");
-        if (studentId && dragFrom && isAdjacent(dragFrom, column.key)) {
-          await move(studentId, column.key);
-        }
-      });
-
       return h("div", { class: `column column--${column.key}` },
         h("div", { class: "column__head" },
           column.title,
@@ -1636,36 +1687,80 @@ async function renderBoard(lessonId) {
     layoutBoard(boardEl);
   }
 
-  let dragFrom = null;
-
+  /** Drag & Drop per Pointer Events statt HTML5-Drag-and-Drop: funktioniert
+   * so gleichermassen mit Maus, Finger und Stift (HTML5-DnD ist auf
+   * Tablets je nach Browser gar nicht oder nur per Langdruck verfuegbar). */
   function studentCard(row, columnKey) {
     const name = row.students?.name ?? "Unbekannt";
 
     const card = h("div", {
-      class: "student",
-      draggable: lesson.ended_at ? "false" : "true",
+      class: `student${lesson.ended_at ? "" : " student--draggable"}`,
       dataset: { studentId: row.student_id, column: columnKey }
     },
       h("div", { class: "student__name" }, name));
 
-    card.addEventListener("dragstart", (event) => {
-      if (lesson.ended_at) { event.preventDefault(); return; }
-      dragFrom = columnKey;
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", row.student_id);
-      card.classList.add("student--dragging");
-      // Nicht benachbarte Spalten optisch abblenden.
-      boardEl.querySelectorAll(".column__body").forEach((el) => {
-        if (!isAdjacent(columnKey, el.dataset.column)) {
-          el.parentElement.classList.add("column--invalid");
+    card.addEventListener("pointerdown", (event) => {
+      if (lesson.ended_at || busy || event.button !== 0) return;
+      event.preventDefault();
+      card.setPointerCapture(event.pointerId);
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let floating = null;
+      let offX = 0;
+      let offY = 0;
+      let target = null;
+
+      function begin() {
+        const rect = card.getBoundingClientRect();
+        offX = startX - rect.left;
+        offY = startY - rect.top;
+        floating = card.cloneNode(true);
+        floating.classList.add("student--floating");
+        floating.style.width = `${rect.width}px`;
+        floating.style.height = `${rect.height}px`;
+        document.body.append(floating);
+        card.classList.add("student--dragging");
+        // Nicht benachbarte Spalten optisch abblenden.
+        boardEl.querySelectorAll(".column__body").forEach((el) => {
+          if (!isAdjacent(columnKey, el.dataset.column)) el.parentElement.classList.add("column--invalid");
+        });
+      }
+
+      function onMove(ev) {
+        if (!floating) {
+          if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < BOARD_DRAG_START_PX) return;
+          begin();
         }
-      });
-    });
-    card.addEventListener("dragend", () => {
-      dragFrom = null;
-      card.classList.remove("student--dragging");
-      boardEl.querySelectorAll(".column--dragover, .column--invalid")
-        .forEach((el) => el.classList.remove("column--dragover", "column--invalid"));
+        floating.style.transform = `translate(${ev.clientX - offX}px, ${ev.clientY - offY}px)`;
+        // Nur direkt benachbarte Spalten sind gueltige Drop-Ziele.
+        const column = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".column");
+        const key = column?.querySelector(".column__body")?.dataset.column;
+        const next = key && isAdjacent(columnKey, key) ? column : null;
+        if (next !== target) {
+          target?.classList.remove("column--dragover");
+          next?.classList.add("column--dragover");
+          target = next;
+        }
+      }
+
+      function finish(ev) {
+        card.removeEventListener("pointermove", onMove);
+        card.removeEventListener("pointerup", finish);
+        card.removeEventListener("pointercancel", finish);
+        if (!floating) return;
+        floating.remove();
+        card.classList.remove("student--dragging");
+        boardEl.querySelectorAll(".column--dragover, .column--invalid")
+          .forEach((el) => el.classList.remove("column--dragover", "column--invalid"));
+        if (ev.type === "pointerup" && target) {
+          move(row.student_id, target.querySelector(".column__body").dataset.column);
+        }
+      }
+
+      card.addEventListener("pointermove", onMove);
+      card.addEventListener("pointerup", finish);
+      card.addEventListener("pointercancel", finish);
     });
 
     return card;
@@ -1722,7 +1817,7 @@ async function renderBoard(lessonId) {
     const info = h("div", { style: sorted ? "min-width:0" : "flex:1 1 auto;min-width:0" },
       h("strong", {}, lesson.classes?.name ?? "Klasse"),
       h("span", { class: "list__sub" },
-        `${formatDate(lesson.date)}${lesson.ended_at ? " · beendet" : " · laeuft"}`));
+        `${formatDate(lesson.date)}${lesson.ended_at ? " · beendet" : " · läuft"}`));
 
     headerEl.replaceChildren(...(sorted ? [info, statsEl, actions] : [info, actions]));
   }
@@ -1751,6 +1846,8 @@ function cssEscape(value) {
    ------------------------------------------------------------------- */
 
 const FOCUS_PROBE = "probelauf";
+/** Route der Uebersicht ueber alle Klassenwaelder (#/focus/waelder). */
+const FOCUS_WALK = "waelder";
 const FOCUS_GOALS_MIN = [3, 5, 10, 15, 20, 30, 45];
 /** Offenes Ziel: der Timer zaehlt hoch, die Baumart richtet sich nach der erreichten Zeit. */
 const FOCUS_OPEN = "offen";
@@ -1790,7 +1887,7 @@ function isMissingFocusSchema(error) {
   return ["42703", "42P01", "PGRST200", "PGRST204", "PGRST205"].includes(error?.code);
 }
 
-const treesLabel = (n) => (n === 1 ? "1 Baum" : `${n} Baeume`);
+const treesLabel = (n) => (n === 1 ? "1 Baum" : `${n} Bäume`);
 
 /* ---------- Baeume (SVG) ---------- */
 
@@ -1818,48 +1915,92 @@ function svg(tag, attrs = {}, ...children) {
   return el;
 }
 
-/** Laengere Ziele lassen seltenere Baeume wachsen – ein Sammelanreiz. */
+/**
+ * Baumarten mit Steckbrief. Die Reihenfolge folgt der Waldentwicklung:
+ * kurze Ziele ergeben schnell wachsende Pionierbaeume, lange Ziele die
+ * langsam wachsenden, uralten Waldriesen. So lernen die Schuelerinnen und
+ * Schueler nebenbei heimische Baeume kennen. `from` = ab dieser ruhigen
+ * Zeit (Sekunden) waechst die Art.
+ */
 const TREE_SPECIES = {
-  laub:   { name: "Laubbaum", article: "Der" },
-  tanne:  { name: "Tanne", article: "Die" },
-  kirsch: { name: "Kirschbaum", article: "Der" }
+  birke: {
+    name: "Birke", full: "Hänge-Birke", latin: "Betula pendula", article: "Die", from: 0,
+    height: "bis 30 m", age: "bis 120 Jahre", growth: "sehr schnell",
+    fact: "Pionierbaum: Auf freien Flächen wächst die Birke als einer der ersten Bäume. " +
+      "Ihre weiße Rinde wirft das Sonnenlicht zurück und schützt den Stamm vor Hitze."
+  },
+  kirsch: {
+    name: "Kirschbaum", full: "Vogelkirsche", latin: "Prunus avium", article: "Der", from: 5 * 60,
+    height: "bis 25 m", age: "rund 100 Jahre", growth: "schnell",
+    fact: "Im April ist sie voller weißer Blüten, die von Bienen bestäubt werden – ohne Bienen keine Kirschen. " +
+      "Aus der wilden Vogelkirsche wurden unsere Süßkirschen gezüchtet."
+  },
+  ahorn: {
+    name: "Ahorn", full: "Berg-Ahorn", latin: "Acer pseudoplatanus", article: "Der", from: 10 * 60,
+    height: "bis 35 m", age: "bis 500 Jahre", growth: "schnell",
+    fact: "Seine Früchte haben Flügel und drehen sich beim Herunterfallen wie kleine Propeller. " +
+      "So trägt der Wind die Samen weit vom Baum weg."
+  },
+  fichte: {
+    name: "Fichte", full: "Gemeine Fichte", latin: "Picea abies", article: "Die", from: 15 * 60,
+    height: "bis 50 m", age: "bis 600 Jahre", growth: "mittel",
+    fact: "Fichtenzapfen hängen nach unten und fallen als Ganzes herab. Tannenzapfen stehen aufrecht " +
+      "und zerfallen am Baum – ein Zapfen auf dem Waldboden stammt deshalb fast nie von einer Tanne."
+  },
+  buche: {
+    name: "Buche", full: "Rotbuche", latin: "Fagus sylvatica", article: "Die", from: 20 * 60,
+    height: "bis 40 m", age: "bis 300 Jahre", growth: "langsam",
+    fact: "Ohne den Menschen wäre der größte Teil Deutschlands von Buchenwald bedeckt. " +
+      "Ihren Namen hat sie vom leicht rötlichen Holz."
+  },
+  eiche: {
+    name: "Eiche", full: "Stiel-Eiche", latin: "Quercus robur", article: "Die", from: 30 * 60,
+    height: "bis 40 m", age: "bis 1000 Jahre", growth: "langsam",
+    fact: "Eine alte Eiche ist ein Hochhaus für Tiere: Hunderte Insektenarten, Vögel und Fledermäuse leben an ihr. " +
+      "Eichelhäher verstecken Eicheln als Vorrat – vergessene keimen zu neuen Eichen."
+  },
+  mammut: {
+    name: "Mammutbaum", full: "Riesenmammutbaum", latin: "Sequoiadendron giganteum", article: "Der", from: 45 * 60,
+    height: "bis 95 m", age: "über 3000 Jahre", growth: "langsam, aber riesig",
+    fact: "Der größte Baum der Erde ist ein Mammutbaum: „General Sherman“ in Kalifornien ist 84 m hoch " +
+      "und wiegt über 1000 Tonnen. Seine dicke Rinde schützt ihn sogar vor Waldbränden."
+  }
 };
 
-/** Ab dieser Zeit (Sekunden) waechst die jeweilige Art. */
-const TREE_THRESHOLDS = [["kirsch", 20 * 60], ["tanne", 10 * 60], ["laub", 0]];
+/** Arten vom ersten (kuerzestes Ziel) bis zum seltensten Baum. */
+const TREE_ORDER = Object.keys(TREE_SPECIES);
 
 function speciesForGoal(seconds) {
-  return TREE_THRESHOLDS.find(([, from]) => seconds >= from)[0];
+  return [...TREE_ORDER].reverse().find((key) => seconds >= TREE_SPECIES[key].from);
 }
 
 /** Naechste Baumart im offenen Modus, oder null bei der seltensten. */
 function nextSpecies(seconds) {
-  const next = [...TREE_THRESHOLDS].reverse().find(([, from]) => seconds < from);
-  return next ? { species: next[0], seconds: next[1] } : null;
+  const next = TREE_ORDER.find((key) => seconds < TREE_SPECIES[key].from);
+  return next ? { species: next, seconds: TREE_SPECIES[next].from } : null;
 }
 
 const circles = (list) => list.map(([cx, cy, r]) => ({ cx, cy, r }));
+/** Zusatzdetails (Bluete, Zapfen, Fruechte), erscheinen erst am ausgewachsenen Baum. */
+const dots = (list, attrs) => list.map(([cx, cy]) => ["circle", { cx, cy, ...attrs }]);
 
 // Koordinaten im viewBox 0 0 200 240, Stammfuss bei (100, 222).
 // Blaetter stehen in der Reihenfolge, in der sie beim Wachsen erscheinen.
 const TREE_SHAPES = {
-  laub: {
-    wood: "#7a5536",
-    trunk: "M93 222 C95 190 96 160 97 118 L103 118 C104 160 105 190 107 222 Z",
-    branches: ["M98 164 C90 154 82 144 74 130", "M102 152 C110 144 118 136 126 126"],
-    leaves: circles([[100, 112, 26], [74, 120, 24], [126, 118, 24], [100, 86, 32], [70, 94, 24],
-      [130, 92, 24], [86, 64, 24], [116, 62, 24], [100, 46, 20]]),
-    colors: ["#2f9e57", "#3fb56a", "#27874a"],
-    blossoms: []
-  },
-  tanne: {
-    wood: "#6b4a2f",
-    trunk: "M95 222 L96 190 L104 190 L105 222 Z",
-    branches: [],
-    leaves: [[198, 128, 52], [174, 110, 50], [150, 92, 46], [126, 74, 42], [102, 56, 38], [80, 38, 34]]
-      .map(([y, w, hh]) => ({ points: `${100 - w / 2},${y} ${100 + w / 2},${y} 100,${y - hh}` })),
-    colors: ["#166534", "#1d7a41"],
-    blossoms: []
+  birke: {
+    wood: "#5e5a52",
+    trunkFill: "#ecebe4",
+    trunk: "M96 222 C97 196 98 150 99 62 L101 62 C102 150 103 196 104 222 Z",
+    branchWidth: 2.5,
+    bark: [[97, 205, 5, 2], [99, 190, 4, 1.6], [96.6, 174, 4, 1.6], [99.4, 156, 3.4, 1.4], [97.6, 136, 3, 1.3], [99, 116, 2.6, 1.2]]
+      .map(([x, y, width, height]) => ["rect", { x, y, width, height, fill: "#2d2d2d" }]),
+    branches: ["M99 120 C90 118 80 128 76 150", "M101 108 C112 106 122 118 126 140",
+      "M99 90 C92 88 84 96 80 112", "M101 80 C108 78 116 86 120 100"],
+    leaves: circles([[96, 132, 14], [106, 142, 12], [80, 134, 13], [120, 134, 13], [92, 106, 16], [108, 106, 16],
+      [76, 110, 15], [124, 110, 15], [100, 80, 16], [80, 86, 15], [120, 86, 15], [88, 64, 14], [112, 64, 14], [100, 48, 13]]),
+    colors: ["#8cc63f", "#a5d65a", "#74b23a"],
+    extras: [[84, 96], [116, 94], [78, 124], [122, 122], [96, 118], [106, 84], [90, 140], [112, 128]]
+      .map(([cx, cy]) => ["ellipse", { cx, cy, rx: 2, ry: 5.5, fill: "#c2a83e" }])
   },
   kirsch: {
     wood: "#5b3a29",
@@ -1868,9 +2009,74 @@ const TREE_SHAPES = {
       "M99 140 C92 128 88 116 84 104", "M101 136 C108 124 112 114 116 104"],
     leaves: circles([[100, 112, 24], [66, 122, 20], [134, 120, 20], [84, 96, 26], [116, 96, 26],
       [56, 100, 18], [144, 98, 18], [100, 76, 26], [76, 72, 20], [124, 72, 20], [100, 54, 18]]),
-    colors: ["#f9a8d4", "#f472b6", "#fbcfe8"],
-    blossoms: [[80, 110], [118, 104], [96, 90], [64, 118], [136, 112], [108, 70],
-      [86, 62], [124, 82], [70, 90], [132, 96], [100, 50], [92, 112]]
+    colors: ["#6fbf5a", "#86cc6c", "#5aa846"],
+    extras: dots([[80, 110], [118, 104], [96, 90], [64, 118], [136, 112], [108, 70], [86, 62], [124, 82],
+      [70, 90], [132, 96], [100, 50], [92, 112], [56, 104], [144, 102], [112, 120], [84, 80], [116, 58], [100, 100]],
+      { r: 4.2, fill: "#ffffff", stroke: "#f2c9d8", "stroke-width": 1 })
+  },
+  ahorn: {
+    wood: "#6e4b33",
+    trunk: "M92 222 C94 196 95 170 96 130 L104 130 C105 170 106 196 108 222 Z",
+    branches: ["M98 168 C88 158 78 150 68 140", "M102 160 C112 150 122 144 132 136",
+      "M99 140 C94 128 90 120 86 110", "M101 138 C106 128 112 120 116 110"],
+    leaves: circles([[100, 120, 26], [70, 118, 24], [130, 118, 24], [56, 96, 22], [144, 96, 22], [84, 94, 28],
+      [116, 94, 28], [100, 70, 30], [70, 68, 24], [130, 68, 24], [100, 44, 24]]),
+    colors: ["#4caf50", "#43a047", "#66bb6a"],
+    extras: [[72, 128], [128, 130], [58, 104], [142, 106], [90, 74], [114, 78], [100, 110], [80, 52], [122, 50]]
+      .map(([x, y]) => ["path", { d: `M${x} ${y} q-8 -1 -11 -9 M${x} ${y} q8 -1 11 -9`, fill: "none",
+        stroke: "#c08f3e", "stroke-width": 3, "stroke-linecap": "round" }])
+  },
+  fichte: {
+    wood: "#5d4030",
+    trunk: "M95 222 L96 196 L104 196 L105 222 Z",
+    branches: [],
+    // Untere Spitzen tiefer als die Mitte: haengende Zweige wie bei der Fichte.
+    leaves: [[204, 124, 48], [180, 108, 46], [156, 94, 44], [132, 80, 42], [108, 64, 40], [84, 48, 36], [60, 32, 34]]
+      .map(([y, w, hh]) => ({ points: `${100 - w / 2},${y} 100,${y - hh} ${100 + w / 2},${y} ` +
+        `${100 + w / 4},${y - 7} 100,${y - 4} ${100 - w / 4},${y - 7}` })),
+    colors: ["#1e5631", "#2a6b3c", "#173f27"],
+    extras: [[66, 192], [134, 190], [76, 168], [124, 166], [84, 142], [116, 144], [90, 118], [110, 96]]
+      .map(([cx, cy]) => ["ellipse", { cx, cy, rx: 2.8, ry: 7, fill: "#8a5530" }])
+  },
+  buche: {
+    wood: "#8b8a83",
+    trunk: "M92 222 C94 194 95 168 96 128 L104 128 C105 168 106 194 108 222 Z",
+    branches: ["M98 164 C86 154 72 146 58 138", "M102 158 C114 148 128 142 142 136",
+      "M99 138 C92 124 86 112 80 98", "M101 136 C108 122 114 110 120 98"],
+    leaves: circles([[100, 124, 26], [64, 128, 22], [136, 128, 22], [44, 108, 20], [156, 108, 20], [74, 104, 28],
+      [126, 104, 28], [100, 96, 32], [58, 80, 22], [142, 80, 22], [82, 66, 28], [118, 66, 28], [100, 44, 24]]),
+    colors: ["#2e7d32", "#388e3c", "#256d2a"],
+    extras: [[60, 118], [140, 116], [86, 92], [116, 90], [100, 64], [72, 74], [128, 74], [100, 120]]
+      .map(([x, y]) => ["polygon", { points: `${x - 3.5},${y + 3} ${x + 3.5},${y + 3} ${x},${y - 4.5}`, fill: "#8d5a2b" }])
+  },
+  eiche: {
+    wood: "#5a4128",
+    trunk: "M86 222 C92 202 94 184 92 160 C98 155 102 155 108 160 C106 184 108 202 114 222 Z",
+    branchWidth: 7,
+    branches: ["M94 164 C84 150 70 146 56 136", "M106 162 C118 150 132 146 146 136",
+      "M98 160 C94 140 90 128 86 110", "M102 158 C108 140 114 128 118 112"],
+    leaves: circles([[52, 126, 20], [148, 126, 20], [72, 122, 22], [128, 122, 22], [100, 118, 22], [38, 102, 18],
+      [162, 102, 18], [62, 98, 24], [138, 98, 24], [100, 92, 28], [56, 74, 16], [144, 74, 16], [78, 72, 24],
+      [122, 72, 24], [100, 52, 22]]),
+    colors: ["#4f7a28", "#5f8f32", "#456b22"],
+    extras: [[56, 134], [144, 132], [80, 108], [120, 106], [100, 128], [66, 86], [134, 84], [96, 70], [112, 60]]
+      .flatMap(([cx, cy]) => [
+        ["ellipse", { cx, cy, rx: 3.2, ry: 4.4, fill: "#b07a33" }],
+        ["ellipse", { cx, cy: cy - 3.4, rx: 3.8, ry: 2.2, fill: "#6b4423" }]
+      ])
+  },
+  mammut: {
+    wood: "#8b3f22",
+    trunk: "M82 222 C90 210 92 190 94 150 L97 34 L103 34 L106 150 C108 190 110 210 118 222 Z",
+    bark: ["M96 216 L97 160", "M104 216 L103 160", "M100 218 L100 170"]
+      .map((d) => ["path", { d, fill: "none", stroke: "#6d2f18", "stroke-width": 1.6, "stroke-linecap": "round" }]),
+    branches: [],
+    leaves: [[84, 150, 15, 10], [116, 152, 15, 10], [104, 138, 11, 8], [80, 120, 16, 11], [120, 122, 16, 11],
+      [96, 108, 12, 9], [82, 92, 14, 10], [118, 94, 14, 10], [100, 80, 13, 9], [86, 64, 13, 9], [114, 66, 13, 9],
+      [98, 54, 12, 8], [92, 38, 11, 8], [108, 42, 11, 8], [100, 22, 9, 8]]
+      .map(([cx, cy, rx, ry]) => ({ cx, cy, rx, ry })),
+    colors: ["#2f5d3a", "#3b6e45", "#264d30"],
+    extras: []
   }
 };
 
@@ -1881,25 +2087,26 @@ const TREE_MOODS = ["calm", "uneasy", "loud", "withered", "done", "paused"];
  * still = statische Variante fuer Wald und Symbole (ohne Keimling/Animation).
  */
 function buildTree(speciesKey, { still = false } = {}) {
-  const shape = TREE_SHAPES[speciesKey] || TREE_SHAPES.laub;
+  const shape = TREE_SHAPES[speciesKey] || TREE_SHAPES[TREE_ORDER[0]];
 
   const leafEls = shape.leaves.map((leaf, i) => {
     const attrs = { class: "leaf", fill: shape.colors[i % shape.colors.length], style: `--i:${i}` };
-    return leaf.points
-      ? svg("polygon", { ...attrs, points: leaf.points })
-      : svg("circle", { ...attrs, cx: leaf.cx, cy: leaf.cy, r: leaf.r });
+    if (leaf.points) return svg("polygon", { ...attrs, points: leaf.points });
+    if (leaf.rx) return svg("ellipse", { ...attrs, cx: leaf.cx, cy: leaf.cy, rx: leaf.rx, ry: leaf.ry });
+    return svg("circle", { ...attrs, cx: leaf.cx, cy: leaf.cy, r: leaf.r });
   });
-  const blossomEls = shape.blossoms.map(([cx, cy], i) =>
-    svg("circle", { class: "leaf leaf--blossom", cx, cy, r: 3.2, fill: "#fff7fb", style: `--i:${i + leafEls.length}` }));
+  const extraEls = shape.extras.map(([tag, attrs], i) =>
+    svg(tag, { ...attrs, class: "leaf leaf--extra", style: `--i:${i + leafEls.length}` }));
 
   const scaleEl = svg("g", { class: "tree__scale" },
     svg("g", { class: "tree__motion" },
-      svg("path", { d: shape.trunk, fill: shape.wood }),
+      svg("path", { d: shape.trunk, fill: shape.trunkFill ?? shape.wood }),
+      (shape.bark ?? []).map(([tag, attrs]) => svg(tag, attrs)),
       shape.branches.map((d) => svg("path", {
-        d, fill: "none", stroke: shape.wood, "stroke-width": 5, "stroke-linecap": "round"
+        d, fill: "none", stroke: shape.wood, "stroke-width": shape.branchWidth ?? 5, "stroke-linecap": "round"
       })),
       leafEls,
-      blossomEls));
+      extraEls));
 
   const sproutEl = still ? null : svg("g", { class: "tree__sprout" },
     svg("path", { d: "M100 216 C100 210 100 206 101 200", fill: "none", stroke: "#4d9a45", "stroke-width": 3, "stroke-linecap": "round" }),
@@ -1927,7 +2134,7 @@ function buildTree(speciesKey, { still = false } = {}) {
     scaleEl.style.opacity = p >= 0.08 ? "1" : "0";
     if (sproutEl) sproutEl.style.opacity = p < 0.08 ? "1" : "0";
     leafEls.forEach((leaf, i) => leaf.classList.toggle("is-on", p >= 0.18 + (0.72 * i) / leafEls.length));
-    blossomEls.forEach((b, i) => b.classList.toggle("is-on", p >= 0.9 + (0.1 * i) / blossomEls.length));
+    extraEls.forEach((b, i) => b.classList.toggle("is-on", p >= 0.9 + (0.1 * i) / extraEls.length));
 
     if (instant) {
       el.getBoundingClientRect();   // Styles ohne Transition uebernehmen
@@ -1964,6 +2171,192 @@ function forestView(trees, { limit = Infinity, scale = 1 } = {}) {
       return stillTree(species, height,
         `${TREE_SPECIES[species].name} · ${minutes} min · ${formatDate(tree.created_at)}`);
     }));
+}
+
+/* ---------- Baum-Steckbriefe ---------- */
+
+/** Steckbrief zum Lernen: Bild, Name, Eckdaten und ein Fakt zur Art. */
+function treeFactCard(speciesKey, { note = null, kicker = "Wusstest du?" } = {}) {
+  const sp = TREE_SPECIES[speciesKey];
+  return h("article", { class: "treefact" },
+    h("div", { class: "treefact__pic" }, stillTree(speciesKey, 6)),
+    h("div", { class: "treefact__body" },
+      h("p", { class: "treefact__kicker" }, kicker),
+      h("h3", {}, sp.full, h("span", { class: "treefact__latin" }, sp.latin)),
+      h("ul", { class: "treefact__chips" },
+        h("li", {}, `Höhe ${sp.height}`),
+        h("li", {}, `Alter ${sp.age}`),
+        h("li", {}, `wächst ${sp.growth}`)),
+      h("p", { class: "treefact__text" }, sp.fact),
+      note ? h("p", { class: "treefact__note" }, note) : null));
+}
+
+/** Alle Arten in Wachstumsreihenfolge – zeigt, welcher Baum ab wann waechst. */
+function treeLadder() {
+  return h("ol", { class: "ladder" }, TREE_ORDER.map((key) =>
+    h("li", {},
+      stillTree(key, 3.2),
+      h("strong", {}, TREE_SPECIES[key].name),
+      h("span", {}, `ab ${Math.max(FOCUS_GOALS_MIN[0], TREE_SPECIES[key].from / 60)} min`))));
+}
+
+/* ---------- Waelder: Hain-Layout und Rundgang ---------- */
+
+/** Hoehe einer Birke im Wald (px); seltenere Arten werden groesser. */
+const GROVE_BASE_PX = 46;
+
+function treeHeightPx(seconds, base) {
+  return base * (1 + TREE_ORDER.indexOf(speciesForGoal(seconds)) * 0.32);
+}
+
+/** Fester Pseudozufall pro Baum, damit der Wald bei jedem Aufbau gleich aussieht. */
+function hashUnit(text, salt = 0) {
+  let x = 2166136261 ^ salt;
+  for (const ch of String(text)) x = Math.imul(x ^ ch.charCodeAt(0), 16777619);
+  return ((x >>> 0) % 10007) / 10007;
+}
+
+/**
+ * Ordnet die Baeume einer Klasse als Hain an: Reihen von hinten nach vorn,
+ * die groessten (am laengsten erarbeiteten) Baeume hinten, die kleinen vorn.
+ * In jeder Reihe stehen die besten in der Mitte, die leichter erreichten
+ * aussen. Liefert Pixelpositionen relativ zur linken oberen Ecke.
+ */
+function groveLayout(trees, base) {
+  const items = [...trees]
+    .sort((a, b) => b.goal_seconds - a.goal_seconds || String(a.created_at).localeCompare(String(b.created_at)))
+    .map((tree) => {
+      const hgt = treeHeightPx(tree.goal_seconds, base);
+      return { tree, h: hgt, w: hgt * 200 / 240, step: hgt * 200 / 240 * 0.58 };
+    });
+
+  // Vordere Reihen sind breiter – der Hain oeffnet sich zum Betrachter hin.
+  const rowWidth = Math.max(base * 3, Math.sqrt(items.length) * base * 1.4);
+  const rows = [];
+  let row = [];
+  let width = 0;
+  for (const item of items) {
+    if (row.length && width + item.step > rowWidth * (1 + rows.length * 0.2)) {
+      rows.push(row);
+      row = [];
+      width = 0;
+    }
+    row.push(item);
+    width += item.step;
+  }
+  if (row.length) rows.push(row);
+
+  const placed = [];
+  rows.forEach((list, k) => {
+    // Mitte-aussen-Reihenfolge: bester Baum in die Mitte, dann abwechselnd rechts und links.
+    const ordered = [];
+    list.forEach((item, i) => (i % 2 ? ordered.push(item) : ordered.unshift(item)));
+    const total = ordered.reduce((sum, item) => sum + item.step, 0);
+    let cursor = -total / 2;
+    for (const item of ordered) {
+      const id = item.tree.id ?? item.tree.created_at;
+      placed.push({
+        ...item,
+        x: cursor + item.step / 2 + (hashUnit(id, 1) - 0.5) * base * 0.2,
+        y: k * base * 0.42 + (hashUnit(id, 2) - 0.5) * base * 0.12,
+        z: k
+      });
+      cursor += item.step;
+    }
+  });
+
+  const left = Math.min(...placed.map((p) => p.x - p.w / 2));
+  const right = Math.max(...placed.map((p) => p.x + p.w / 2));
+  const top = Math.min(...placed.map((p) => p.y - p.h));
+  const bottom = Math.max(...placed.map((p) => p.y));
+  return {
+    width: right - left,
+    height: bottom - top,
+    items: placed.map((p) => ({ ...p, left: p.x - p.w / 2 - left, top: p.y - p.h - top }))
+  };
+}
+
+/** Wald einer Klasse als Hain mit Schild; Baeume sind antippbar (onPick). */
+function groveView(cls, { base = GROVE_BASE_PX, rank = null, onPick = null } = {}) {
+  const trees = cls.focus_trees || [];
+  const stats = forestStats(cls);
+  let plot;
+  if (trees.length) {
+    const layout = groveLayout(trees, base);
+    plot = h("div", { class: "grove__plot", style: `width:${layout.width.toFixed(0)}px;height:${layout.height.toFixed(0)}px` },
+      layout.items.map((item) => {
+        const species = speciesForGoal(item.tree.goal_seconds);
+        const label = `${TREE_SPECIES[species].name}, ${Math.round(item.tree.goal_seconds / 60)} min, ${formatDate(item.tree.created_at)}`;
+        const tree = buildTree(species, { still: true });
+        tree.setProgress(1);
+        const btn = h("button", {
+          class: "grove__tree", type: "button", "aria-label": label, title: label,
+          style: `left:${item.left.toFixed(1)}px;top:${item.top.toFixed(1)}px;` +
+            `width:${item.w.toFixed(1)}px;height:${item.h.toFixed(1)}px;z-index:${item.z + 1}`
+        }, tree.el);
+        if (onPick) btn.addEventListener("click", () => onPick(item.tree, cls, btn));
+        return btn;
+      }));
+  } else {
+    const sprout = buildTree(TREE_ORDER[0]);
+    sprout.setProgress(0, { instant: true });
+    plot = h("div", { class: "grove__empty" }, sprout.el, h("span", {}, "Noch keine Bäume"));
+  }
+  return h("section", { class: "grove", dataset: { classId: cls.id }, "aria-label": `Wald von ${cls.name}` },
+    h("div", { class: "grove__sign" },
+      h("strong", {}, rank ? `${rank}. ${cls.name}` : cls.name),
+      h("span", {}, `${treesLabel(stats.count)} · ${stats.minutes} min`)),
+    plot);
+}
+
+/**
+ * Landschaft mit den Hainen nebeneinander. Auf Touch-Geraeten wird nativ
+ * gewischt, mit der Maus laesst sich die Landschaft ziehen.
+ */
+function forestLandscape(groves, { compact = false } = {}) {
+  const track = h("div", { class: "landscape__track" }, groves);
+  const scroller = h("div", {
+    class: `landscape${compact ? " landscape--compact" : ""}`, tabindex: "0",
+    role: "region", "aria-label": "Wälder – zum Erkunden seitlich wischen oder ziehen"
+  }, track);
+
+  let drag = null;
+  let suppressClick = false;
+  // Klick nach dem Ziehen nicht als Baum-Auswahl werten.
+  scroller.addEventListener("click", (event) => {
+    if (suppressClick) { event.stopPropagation(); event.preventDefault(); }
+  }, { capture: true });
+  scroller.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
+    drag = { x: event.clientX, left: scroller.scrollLeft, moved: false };
+  });
+  scroller.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    if (!drag.moved && Math.abs(dx) < 5) return;
+    if (!drag.moved) { drag.moved = true; scroller.setPointerCapture(event.pointerId); scroller.classList.add("is-dragging"); }
+    scroller.scrollLeft = drag.left - dx;
+  });
+  const endDrag = (event) => {
+    if (!drag) return;
+    if (drag.moved) {
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 0);
+    }
+    drag = null;
+    scroller.classList.remove("is-dragging");
+    if (scroller.hasPointerCapture?.(event.pointerId)) scroller.releasePointerCapture(event.pointerId);
+  };
+  scroller.addEventListener("pointerup", endDrag);
+  scroller.addEventListener("pointercancel", endDrag);
+  return scroller;
+}
+
+/** Scrollt die Landschaft so, dass der Hain mittig steht. */
+function centerGrove(scroller, grove, smooth = true) {
+  const target = grove.offsetLeft + grove.offsetWidth / 2 - scroller.clientWidth / 2;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  scroller.scrollTo({ left: Math.max(0, target), behavior: smooth && !reduce ? "smooth" : "auto" });
 }
 
 function progressBar(fraction) {
@@ -2008,7 +2401,7 @@ function micErrorMessage(error) {
   switch (error?.name) {
     case "NotAllowedError":
     case "SecurityError":
-      return "Der Mikrofonzugriff wurde verweigert. Bitte im Browser fuer diese Seite erlauben.";
+      return "Der Mikrofonzugriff wurde verweigert. Bitte im Browser für diese Seite erlauben.";
     case "NotFoundError":
     case "OverconstrainedError":
       return "Es wurde kein Mikrofon gefunden.";
@@ -2034,7 +2427,7 @@ function createNoiseMeter() {
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Mikrofonzugriff ist hier nicht moeglich (HTTPS erforderlich).");
+      throw new Error("Mikrofonzugriff ist hier nicht möglich (HTTPS erforderlich).");
     }
     // Noch synchron im Klick-Handler anlegen, sonst startet er "suspended".
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -2088,8 +2481,8 @@ function renderFocusSchemaHint() {
     h("div", { class: "card stack" },
       h("h2", {}, "Datenbank-Update fehlt"),
       h("p", { class: "muted" },
-        "Fuer den Fokus-Wald muss einmalig die Migration supabase/migrations/0003_focus.sql " +
-        "im Supabase SQL-Editor ausgefuehrt werden."),
+        "Für den Fokus-Wald muss einmalig die Migration supabase/migrations/0003_focus.sql " +
+        "im Supabase SQL-Editor ausgeführt werden."),
       h("button", { class: "btn", onclick: () => navigate(`/focus/${FOCUS_PROBE}`) },
         "Probelauf ohne Speichern"))
   );
@@ -2120,20 +2513,117 @@ async function renderFocusHome() {
     : emptyView("Noch keine Klassen. Lege zuerst unter „Klassen“ eine an.");
 
   appEl.replaceChildren(
-    h("div", { class: "stack" },
-      h("div", { class: "card" },
-        h("h2", {}, "Fokus-Wald"),
-        h("p", { class: "muted small" },
-          "Ein Lautstaerke-Monitor fuer Stillarbeit auf dem Beamer: Solange es ruhig ist, waechst ein Baum. " +
-          "Wird es zu laut, vertrocknet er. Jeder fertige Baum wird im Wald der Klasse gepflanzt – " +
-          "Klassen sammeln Baeume, vergleichen sich im Ranking und arbeiten auf eine selbst gewaehlte Belohnung hin."),
-        h("button", { class: "btn", onclick: () => navigate(`/focus/${FOCUS_PROBE}`) },
-          "Probelauf ohne Klasse")),
-      h("div", { class: "card" },
-        h("h2", {}, "Klassen-Ranking"),
-        h("p", { class: "muted small" }, "Klasse antippen, um ihren Wald zu sehen und eine Fokus-Phase zu starten."),
-        list))
+    pageHead({
+      eyebrow: "Lautstärke-Monitor",
+      title: "Fokus-Wald",
+      lead: "Für Stillarbeit auf dem Beamer: Solange es ruhig ist, wächst ein Baum, wird es zu laut, vertrocknet er. " +
+        "Jeder fertige Baum wird im Wald der Klasse gepflanzt – Klassen sammeln Bäume, vergleichen sich im Ranking " +
+        "und arbeiten auf eine selbst gewählte Belohnung hin.",
+      actions: [
+        h("button", { class: "btn", onclick: () => navigate(`/focus/${FOCUS_PROBE}`) }, "Probelauf ohne Klasse"),
+        h("button", { class: "btn btn--primary", onclick: () => navigate(`/focus/${FOCUS_WALK}`) },
+          icon("wandern"), "Alle Wälder erkunden")
+      ]
+    }),
+    h("div", { class: "card" },
+      h("h2", {}, "Klassen-Ranking"),
+      h("p", { class: "muted small" }, "Klasse antippen, um ihren Wald zu sehen und eine Fokus-Phase zu starten."),
+      list)
   );
+}
+
+/* ---------- Ansicht: Alle Waelder ---------- */
+
+async function renderForestWalk() {
+  appEl.className = "app app--wide";
+  setChrome({ title: "Alle Wälder", back: "/focus" });
+  appEl.replaceChildren(loadingView());
+
+  let classes;
+  try {
+    classes = await api.listFocusClasses();
+  } catch (error) {
+    if (isMissingFocusSchema(error)) return renderFocusSchemaHint();
+    throw error;
+  }
+
+  const ranking = focusRanking(classes);
+  const infoEl = h("div", { class: "walk__info" });
+  let selected = null;
+
+  function pick(tree, cls, btn) {
+    selected?.classList.remove("is-selected");
+    selected = btn;
+    btn.classList.add("is-selected");
+    const species = speciesForGoal(tree.goal_seconds);
+    infoEl.replaceChildren(treeFactCard(species, {
+      kicker: `Wald von ${cls.name}`,
+      note: `Gepflanzt am ${formatDate(tree.created_at)} nach ${Math.round(tree.goal_seconds / 60)} Minuten Ruhe.`
+    }));
+  }
+
+  // Auf grossen Bildschirmen (Beamer) duerfen die Baeume groesser sein.
+  const base = window.innerWidth >= 1024 ? 62 : 52;
+  const groves = ranking.map((entry) => groveView(entry.cls, { base, rank: entry.rank, onPick: pick }));
+  const landscape = forestLandscape(groves);
+
+  // Sprungmarken zu den Klassen und Vor/Zurueck-Pfeile
+  const current = () => {
+    const mid = landscape.scrollLeft + landscape.clientWidth / 2;
+    let best = 0;
+    groves.forEach((g, i) => {
+      if (Math.abs(g.offsetLeft + g.offsetWidth / 2 - mid) <
+          Math.abs(groves[best].offsetLeft + groves[best].offsetWidth / 2 - mid)) best = i;
+    });
+    return best;
+  };
+  const go = (i) => centerGrove(landscape, groves[Math.min(groves.length - 1, Math.max(0, i))]);
+  const chips = ranking.map((entry, i) =>
+    h("button", { class: "chip", type: "button", onclick: () => go(i) }, entry.cls.name));
+  const markCurrent = () => {
+    const i = current();
+    chips.forEach((chip, j) => chip.setAttribute("aria-current", String(i === j)));
+  };
+  landscape.addEventListener("scroll", () => requestAnimationFrame(markCurrent), { passive: true });
+
+  const totalTrees = classes.reduce((sum, c) => sum + (c.focus_trees?.length ?? 0), 0);
+  const counts = Object.fromEntries(TREE_ORDER.map((key) => [key, 0]));
+  for (const c of classes) for (const t of c.focus_trees ?? []) counts[speciesForGoal(t.goal_seconds)]++;
+
+  infoEl.append(h("p", { class: "walk__hint" },
+    "Tippe einen Baum an, um seinen Steckbrief zu sehen."));
+
+  appEl.replaceChildren(
+    h("div", { class: "walk" },
+      pageHead({
+        eyebrow: `${treesLabel(totalTrees)} in ${classes.length} ${classes.length === 1 ? "Wald" : "Wäldern"}`,
+        title: "Alle Wälder",
+        lead: "Jede Klasse hat ihren eigenen Wald. Die größten, am längsten erarbeiteten Bäume stehen hinten in der Mitte, " +
+          "die schnell gewachsenen vorne am Rand. Wische oder ziehe zur Seite, um durch die Wälder zu gehen."
+      }),
+      ranking.length
+        ? h("div", { class: "walk__nav" },
+            h("button", { class: "btn btn--icon", type: "button", "aria-label": "Vorheriger Wald", onclick: () => go(current() - 1) }, "\u2190"),
+            h("div", { class: "chips" }, chips),
+            h("button", { class: "btn btn--icon", type: "button", "aria-label": "Nächster Wald", onclick: () => go(current() + 1) }, "\u2192"))
+        : null,
+      ranking.length ? landscape : emptyView("Noch keine Klassen. Lege zuerst unter „Klassen“ eine an."),
+      infoEl,
+      h("section", { class: "lexicon" },
+        h("h2", {}, "Baum-Lexikon"),
+        h("p", { class: "muted" },
+          "Wie in einem echten Wald kommen zuerst die schnell wachsenden Pionierbäume, zuletzt die langsamen Riesen. " +
+          "Je länger eure Klasse ruhig arbeitet, desto seltener der Baum."),
+        h("div", { class: "lexicon__grid" }, TREE_ORDER.map((key) =>
+          treeFactCard(key, {
+            kicker: `Ziel ab ${Math.max(FOCUS_GOALS_MIN[0], TREE_SPECIES[key].from / 60)} min · ${counts[key]}× gepflanzt`
+          })))))
+  );
+
+  // Mit dem bestplatzierten Wald beginnen.
+  if (groves.length) {
+    requestAnimationFrame(() => { go(0); markCurrent(); });
+  }
 }
 
 /* ---------- Ansicht: Fokus-Wald einer Klasse ---------- */
@@ -2174,9 +2664,18 @@ async function renderFocusRoom(classId) {
     appEl.className = "app";
     setChrome({ title: probe ? "Fokus-Wald: Probelauf" : `Fokus-Wald: ${cls.name}`, back: "/focus" });
 
+    // Steckbrief zum gewaehlten Ziel: zum Vorlesen vor der Stillarbeit.
+    const factEl = h("div", { class: "goal-fact", "aria-live": "polite" });
+    const showFact = () => factEl.replaceChildren(goalMinutes === FOCUS_OPEN
+      ? h("div", {},
+          h("p", { class: "treefact__kicker" }, "Offenes Ziel"),
+          h("p", { class: "muted small" }, "Der Timer zählt hoch, und der Baum wird mit der Zeit zur nächsten Art:"),
+          treeLadder())
+      : treeFactCard(speciesForGoal(goalMinutes * 60), { kicker: `Bei ${goalMinutes} min wächst …` }));
+
     const goalButtons = [...FOCUS_GOALS_MIN, FOCUS_OPEN].map((minutes) => {
       const open = minutes === FOCUS_OPEN;
-      const species = open ? "laub" : speciesForGoal(minutes * 60);
+      const species = speciesForGoal(open ? 0 : minutes * 60);
       const btn = h("button", { class: "goal", type: "button", "aria-pressed": String(minutes === goalMinutes) },
         stillTree(species, 3),
         h("span", { class: "goal__min" }, open ? "Offen" : `${minutes} min`),
@@ -2185,9 +2684,11 @@ async function renderFocusRoom(classId) {
         goalMinutes = minutes;
         writePref(PREF_FOCUS_GOAL, minutes);
         for (const other of goalButtons) other.setAttribute("aria-pressed", String(other === btn));
+        showFact();
       });
       return btn;
     });
+    showFact();
 
     const startBtn = h("button", { class: "btn btn--primary btn--lg", type: "button" }, "Mikrofon an und los");
     startBtn.addEventListener("click", async () => {
@@ -2205,30 +2706,31 @@ async function renderFocusRoom(classId) {
     });
 
     const startCard = h("div", { class: "card" },
-      h("h2", {}, "Ziel waehlen"),
+      h("h2", {}, "Ziel wählen"),
       h("p", { class: "muted small" },
         "So lange muss es insgesamt ruhig sein, bis der Baum ausgewachsen ist. " +
-        "Laengere Ziele lassen seltenere Baeume wachsen. " +
-        "„Offen“ zaehlt hoch: ab 10 min wird es eine Tanne, ab 20 min ein Kirschbaum – " +
+        "Wie im echten Wald: Kurze Ziele lassen schnell wachsende Pionierbäume wachsen, lange Ziele die langsamen Waldriesen. " +
+        "„Offen“ zählt hoch, der Baum wird mit der Zeit zur nächsten Art – " +
         `gepflanzt wird mit „Baum pflanzen“ (ab ${FOCUS_GOALS_MIN[0]} min).`),
       h("div", { class: "goals" }, goalButtons),
+      factEl,
       startBtn,
       h("p", { class: "muted small" },
-        "Das Mikrofon misst nur die Lautstaerke – direkt im Browser. " +
-        "Es wird nichts aufgenommen, gespeichert oder uebertragen." +
+        "Das Mikrofon misst nur die Lautstärke – direkt im Browser. " +
+        "Es wird nichts aufgenommen, gespeichert oder übertragen." +
         (probe ? " Im Probelauf wird auch kein Baum gespeichert." : "")),
       h("details", { class: "small muted" },
         h("summary", {}, "So funktioniert es"),
         h("ul", { class: "rules" },
-          h("li", {}, "Gruen (ruhig): Der Timer laeuft, der Baum waechst."),
+          h("li", {}, "Grün (ruhig): Der Timer läuft, der Baum wächst."),
           h("li", {}, "Gelb (unruhig): Der Timer pausiert."),
-          h("li", {}, "Rot (laenger als ca. 1,5 s zu laut): Der Baum vertrocknet, es beginnt ein neuer Samen. " +
+          h("li", {}, "Rot (länger als ca. 1,5 s zu laut): Der Baum vertrocknet, es beginnt ein neuer Samen. " +
             `Bei „Offen“ wird ab ${FOCUS_GOALS_MIN[0]} min stattdessen die erreichte Stufe gepflanzt.`),
-          h("li", {}, "Beim Erklaeren auf „Pause“ tippen oder die Leertaste druecken – sonst zaehlt die eigene Stimme mit."),
+          h("li", {}, "Beim Erklären auf „Pause“ tippen oder die Leertaste drücken – sonst zählt die eigene Stimme mit."),
           h("li", {}, "Mit dem Regler „Empfindlichkeit“ an Raum und Mikrofon anpassen; der Probelauf eignet sich zum Einstellen."))));
 
     if (probe) {
-      appEl.replaceChildren(h("div", { class: "stack" }, startCard));
+      appEl.replaceChildren(pageHead({ eyebrow: "Fokus-Wald", title: "Probelauf" }), h("div", { class: "stack" }, startCard));
       return;
     }
 
@@ -2236,11 +2738,13 @@ async function renderFocusRoom(classId) {
     const rank = 1 + classes.filter((c) => c.id !== cls.id && forestStats(c).minutes > stats.minutes).length;
     const reward = rewardProgress(cls);
 
+    const forestInfo = h("div", { class: "walk__info" });
+    let picked = null;
     const forestCard = h("div", { class: "card" },
       h("h2", {}, `Wald von ${cls.name}`),
       h("div", { class: "stats__grid" },
         h("div", { class: "stat" },
-          h("div", { class: "stat__label" }, "Baeume"),
+          h("div", { class: "stat__label" }, "Bäume"),
           h("div", { class: "stat__value" }, String(stats.count))),
         h("div", { class: "stat" },
           h("div", { class: "stat__label" }, "Fokus-Minuten"),
@@ -2251,10 +2755,26 @@ async function renderFocusRoom(classId) {
           h("div", { class: "stat__label" }, `von ${classes.length} ${classes.length === 1 ? "Klasse" : "Klassen"}`))),
       reward ? rewardView(reward) : null,
       stats.count
-        ? forestView(cls.focus_trees)
-        : emptyView("Noch keine Baeume. Der erste waechst bei der naechsten ruhigen Arbeitsphase."));
+        ? forestLandscape([groveView(cls, {
+            onPick: (tree, _cls, btn) => {
+              picked?.classList.remove("is-selected");
+              picked = btn;
+              btn.classList.add("is-selected");
+              forestInfo.replaceChildren(treeFactCard(speciesForGoal(tree.goal_seconds), {
+                note: `Gepflanzt am ${formatDate(tree.created_at)} nach ${Math.round(tree.goal_seconds / 60)} Minuten Ruhe.`
+              }));
+            }
+          })], { compact: true })
+        : emptyView("Noch keine Bäume. Der erste wächst bei der nächsten ruhigen Arbeitsphase."),
+      forestInfo);
 
-    appEl.replaceChildren(h("div", { class: "stack" }, forestCard, startCard, rewardCard()));
+    appEl.replaceChildren(
+      pageHead({
+        eyebrow: "Fokus-Wald",
+        title: cls.name,
+        actions: [h("button", { class: "btn", onclick: () => navigate(`/focus/${FOCUS_WALK}`) }, icon("wandern"), "Alle Wälder")]
+      }),
+      h("div", { class: "stack" }, forestCard, startCard, rewardCard()));
   }
 
   function rewardView(reward) {
@@ -2268,16 +2788,16 @@ async function renderFocusRoom(classId) {
         ? h("button", {
             class: "btn btn--sm", type: "button",
             onclick: () => confirmDelete(
-              "Belohnung als eingeloest markieren? Der Fortschritt beginnt dann wieder bei 0.",
+              "Belohnung als eingelöst markieren? Der Fortschritt beginnt dann wieder bei 0.",
               async () => {
                 const offset = cls.focus_trees.length;
                 await api.updateFocusReward(cls.id, { focus_reward_offset: offset });
                 cls.focus_reward_offset = offset;
                 showSetup();
-                toast("Belohnung eingeloest.");
+                toast("Belohnung eingelöst.");
               },
-              "Eingeloest")
-          }, "Als eingeloest markieren")
+              "Eingelöst")
+          }, "Als eingelöst markieren")
         : null);
   }
 
@@ -2294,7 +2814,7 @@ async function renderFocusRoom(classId) {
 
     const form = h("form", { class: "reward-form" },
       h("label", { class: "field" }, h("span", { class: "field__label" }, "Belohnung"), textInput),
-      h("label", { class: "field field--num" }, h("span", { class: "field__label" }, "bei Baeumen"), goalInput),
+      h("label", { class: "field field--num" }, h("span", { class: "field__label" }, "bei Bäumen"), goalInput),
       saveBtn);
 
     form.addEventListener("submit", async (event) => {
@@ -2326,7 +2846,7 @@ async function renderFocusRoom(classId) {
     return h("div", { class: "card" },
       h("h2", {}, "Belohnung"),
       h("p", { class: "muted small" },
-        "Am besten mit der Klasse gemeinsam festlegen. Gezaehlt werden Baeume ab dem ersten Speichern. " +
+        "Am besten mit der Klasse gemeinsam festlegen. Gezählt werden Bäume ab dem ersten Speichern. " +
         "Leeres Feld entfernt die Belohnung."),
       form);
   }
@@ -2337,7 +2857,7 @@ async function renderFocusRoom(classId) {
   function runSession(noise, goalSeconds) {
     const open = goalSeconds === null;
     const limit = open ? FOCUS_OPEN_MAX_SECONDS : goalSeconds;
-    let species = open ? "laub" : speciesForGoal(goalSeconds);
+    let species = speciesForGoal(open ? 0 : goalSeconds);
     let sensitivity = Number(readPref(PREF_FOCUS_SENSITIVITY, 2.5));
     if (!(sensitivity >= 0.5 && sensitivity <= 8)) sensitivity = 2.5;
 
@@ -2371,6 +2891,9 @@ async function renderFocusRoom(classId) {
 
     const timeEl = h("div", { class: "focus__time" }, formatClock(open ? 0 : goalSeconds));
     const goalEl = h("div", { class: "focus__goal" });
+    const factEl = h("div", { class: "focus__fact" });
+    const showFact = () => { factEl.textContent = `Wusstest du? ${TREE_SPECIES[species].fact}`; };
+    showFact();
     const backdropEl = h("div", { class: "focus__backdrop", "aria-hidden": "true" });
     const statusEl = h("div", { class: "focus__status", role: "status", "aria-live": "polite" });
     const progressFill = h("div", { class: "focus__progress-fill" });
@@ -2393,9 +2916,10 @@ async function renderFocusRoom(classId) {
     const root = h("div", { class: "focus" },
       h("div", { class: "focus__progress" }, progressFill),
       h("div", { class: "focus__top" },
-        h("div", {},
+        h("div", { class: "focus__head" },
           timeEl,
-          goalEl),
+          goalEl,
+          factEl),
         h("div", { class: "focus__panel" },
           h("div", { class: "focus__buttons" },
             plantBtn,
@@ -2502,6 +3026,7 @@ async function renderFocusRoom(classId) {
       replacement.setProgress(progress, { instant: true });
       tree.el.replaceWith(replacement.el);
       tree = replacement;
+      showFact();
       lastMood = "";
     }
 
@@ -2559,8 +3084,10 @@ async function renderFocusRoom(classId) {
         confettiView(),
         h("div", { class: "celebrate__panel" },
           stillTree(species, 9),
-          h("h2", {}, number ? "Baum gepflanzt!" : "Geschafft!"),
+          h("h2", {}, number ? `${TREE_SPECIES[species].article} ${TREE_SPECIES[species].name} ist gepflanzt!` : "Geschafft!"),
           h("p", {}, message),
+          h("p", { class: "celebrate__fact" },
+            h("strong", {}, `${TREE_SPECIES[species].full}: `), TREE_SPECIES[species].fact),
           reward
             ? h("p", { class: "celebrate__reward" },
                 reward.reached
@@ -2691,7 +3218,7 @@ function confettiView(count = 60) {
    Bestaetigungsdialog
    ------------------------------------------------------------------- */
 
-function confirmDelete(message, onConfirm, confirmLabel = "Loeschen") {
+function confirmDelete(message, onConfirm, confirmLabel = "Löschen") {
   const panel = h("div", { class: "modal__panel" });
   const modal = h("div", { class: "modal", role: "dialog", "aria-modal": "true" }, panel);
 
@@ -2746,9 +3273,9 @@ function pickLessonMode() {
     document.addEventListener("keydown", onKey);
 
     panel.append(
-      h("h2", { style: "margin-top:0" }, "Ansicht waehlen"),
+      h("h2", { style: "margin-top:0" }, "Ansicht wählen"),
       h("p", { class: "muted small" },
-        "Kanban: Schueler per Drag & Drop durch drei Spalten bewegen. " +
+        "Kanban: Schüler per Drag & Drop durch drei Spalten bewegen. " +
         "Sortierte Ansicht: alle Namen alphabetisch in einem Raster, " +
         "per Antippen weiterschalten."),
       h("div", { class: "stack" },

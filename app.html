@@ -13,11 +13,17 @@
 </head>
 <body>
   <header class="topbar" id="topbar" hidden>
-    <button class="topbar__back" id="backBtn" type="button" hidden aria-label="Zurueck">&#8592;</button>
-    <h1 class="topbar__title" id="topbarTitle">BehaviourTracker</h1>
-    <div class="topbar__actions">
-      <span class="topbar__user" id="topbarUser"></span>
-      <button class="btn btn--ghost" id="logoutBtn" type="button">Abmelden</button>
+    <div class="topbar__inner">
+      <button class="topbar__back" id="backBtn" type="button" hidden aria-label="Zurück">&#8592;</button>
+      <a class="brand topbar__brand" href="#/" aria-label="BehaviourTracker – Übersicht">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="brand-mark__a" x="3" y="17" width="7" height="12" rx="2"/><rect class="brand-mark__b" x="12.5" y="10" width="7" height="19" rx="2"/><rect class="brand-mark__c" x="22" y="3" width="7" height="26" rx="2"/></svg>
+        <span class="topbar__brandname">BehaviourTracker</span>
+      </a>
+      <h1 class="topbar__title" id="topbarTitle">BehaviourTracker</h1>
+      <div class="topbar__actions">
+        <span class="topbar__user" id="topbarUser"></span>
+        <button class="btn btn--ghost" id="logoutBtn" type="button">Abmelden</button>
+      </div>
     </div>
   </header>
 

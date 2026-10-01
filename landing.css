@@ -4,17 +4,7 @@
    Abstaende folgen einem 8px-Raster (.5rem-Schritte).
    =================================================================== */
 
-:root {
-  --container: 1120px;
-  --gutter:    16px;
-  --header-h:  64px;
-  --bg-glass:  rgba(250, 250, 250, .85);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg-glass: rgba(15, 15, 16, .85); }
-}
-@media (min-width: 640px)  { :root { --gutter: 24px; } }
-@media (min-width: 1024px) { :root { --gutter: 32px; } }
+/* --container, --gutter, --header-h und --bg-glass stehen in style.css. */
 
 html { scroll-padding-top: calc(var(--header-h) + 16px); }
 @media (prefers-reduced-motion: no-preference) {
@@ -63,19 +53,6 @@ p { margin: 0; }
   height: var(--header-h);
 }
 
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 1.0625rem;
-  letter-spacing: -.01em;
-  color: var(--text);
-  text-decoration: none;
-  transition: opacity var(--t);
-}
-.brand:hover { opacity: .75; }
-.brand .brand-mark { width: 24px; height: 24px; }
 
 .site-nav { display: none; gap: 24px; margin-left: auto; }
 .site-nav a,
@@ -108,37 +85,7 @@ p { margin: 0; }
 .btn--primary.btn--xl:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(17, 17, 17, .08), 0 8px 24px var(--accent-soft); }
 .btn--primary.btn--xl:active:not(:disabled) { transform: translateY(0); }
 
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 24px;
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-muted);
-  font-size: .875rem;
-  font-weight: 500;
-}
-.eyebrow::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--col-mitte-head);
-}
 
-.icon {
-  width: 24px;
-  height: 24px;
-  flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 
 /* ---------------- Abschnitte ---------------- */
 

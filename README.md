@@ -31,7 +31,7 @@ Beim Start eines Unterrichts wählt man eine von zwei Ansichten:
 
 - **Kanban** – drei Spalten, alle Schüler starten links in „Da geht mehr“
   und werden per **Drag & Drop** in die jeweils benachbarte Spalte
-  verschoben.
+  verschoben – mit Maus, Finger oder Stift, also auch auf dem Tablet.
 - **Sortierte Ansicht** – alle Schüler alphabetisch in einem Raster.
   Antippen der **linken** Boxhälfte schaltet einen Zustand zurück, die
   **rechte** Hälfte einen vor; die Position im Raster bleibt dabei fest,
@@ -96,15 +96,36 @@ Baum statt eines Monsters, damit es auch bei älteren Klassen zieht.
 | zu laut (rot, länger als ca. 1,5 s) | Baum vertrocknet, ein neuer Samen startet |
 
 - Jeder erreichte Timer pflanzt den Baum dauerhaft im **Wald der Klasse**.
-  Längere Ziele ergeben seltenere Bäume (bis 5 min Laubbaum, 10–15 min Tanne,
-  ab 20 min Kirschbaum). Während der Fokus-Phase steht der bisherige Wald
-  der Klasse blass im Hintergrund.
-- Ziel **Offen**: Der Timer zählt hoch, der Baum wird ab 10 min zur Tanne und
-  ab 20 min zum Kirschbaum. Mit **Baum pflanzen** (ab 3 min) wird er mit der
+  Während der Fokus-Phase steht der bisherige Wald der Klasse blass im
+  Hintergrund.
+- Jedes Ziel hat eine eigene heimische Baumart mit **Steckbrief** (Höhe,
+  Alter, ein Fakt zum Vorlesen). Wie in einem echten Wald kommen zuerst die
+  schnell wachsenden Pionierbäume, zuletzt die langsamen Riesen:
+
+  | Ziel | Baum |
+  | --- | --- |
+  | 3 min | Hänge-Birke |
+  | 5 min | Vogelkirsche |
+  | 10 min | Berg-Ahorn |
+  | 15 min | Gemeine Fichte |
+  | 20 min | Rotbuche |
+  | 30 min | Stiel-Eiche |
+  | 45 min | Riesenmammutbaum |
+
+  Der Fakt zur aktuellen Art steht während der Fokus-Phase dezent unter dem
+  Timer und beim Pflanzen in der Erfolgsmeldung.
+- Ziel **Offen**: Der Timer zählt hoch, der Baum wird an den Schwellen oben
+  zur nächsten Art. Mit **Baum pflanzen** (ab 3 min) wird er mit der
   erreichten Zeit gepflanzt. Wird es ab 3 min zu laut, vertrocknet der Baum
   nicht, sondern die zuletzt erreichte Stufe wird gepflanzt und ein neuer
   Samen startet.
 - Die Klassen werden in einem **Ranking** nach Fokus-Minuten verglichen.
+- **Alle Wälder erkunden** (Fokus-Wald → oben rechts): alle Klassenwälder
+  nebeneinander in einer Landschaft, jeweils mit Schild über dem Wald. Die
+  größten, am längsten erarbeiteten Bäume stehen hinten in der Mitte, die
+  schnell gewachsenen vorne am Rand. Seitlich wischen oder mit der Maus
+  ziehen, um durch die Wälder zu gehen; ein angetippter Baum zeigt seinen
+  Steckbrief. Darunter steht das **Baum-Lexikon** mit allen Arten.
 - Pro Klasse lässt sich eine **Belohnung** festlegen, z. B. „bei 20 Bäumen:
   Musik in der Stillarbeit“.
 - Beim Erklären auf **Pause** tippen (oder Leertaste), damit die eigene
