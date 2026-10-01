@@ -15,15 +15,13 @@
   <header class="topbar" id="topbar" hidden>
     <div class="topbar__inner">
       <button class="topbar__back" id="backBtn" type="button" hidden aria-label="Zurück">&#8592;</button>
-      <a class="brand topbar__brand" href="#/" aria-label="BehaviourTracker – Übersicht">
+      <a class="brand topbar__brand" href="#/" aria-label="BehaviourTracker – Heute">
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="brand-mark__a" x="3" y="17" width="7" height="12" rx="2"/><rect class="brand-mark__b" x="12.5" y="10" width="7" height="19" rx="2"/><rect class="brand-mark__c" x="22" y="3" width="7" height="26" rx="2"/></svg>
         <span class="topbar__brandname">BehaviourTracker</span>
       </a>
-      <h1 class="topbar__title" id="topbarTitle">BehaviourTracker</h1>
-      <div class="topbar__actions">
-        <span class="topbar__user" id="topbarUser"></span>
-        <button class="btn btn--ghost" id="logoutBtn" type="button">Abmelden</button>
-      </div>
+      <!-- Hauptnavigation, Jetzt-Hinweis, Schnellstart und Konto-Menue baut app.js auf. -->
+      <nav class="topnav" id="topnav" aria-label="Hauptnavigation"></nav>
+      <div class="topbar__actions" id="topbarActions"></div>
     </div>
   </header>
 
@@ -32,9 +30,9 @@
   </main>
 
   <footer class="app-footer">
-    <a href="./impressum.html">Impressum</a>
-    <a href="./datenschutz.html">Datenschutz</a>
-    <a href="./nutzungsbedingungen.html">Nutzungsbedingungen</a>
+    <a href="./impressum.html" target="_blank" rel="noopener">Impressum</a>
+    <a href="./datenschutz.html" target="_blank" rel="noopener">Datenschutz</a>
+    <a href="./nutzungsbedingungen.html" target="_blank" rel="noopener">Nutzungsbedingungen</a>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

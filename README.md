@@ -11,8 +11,15 @@
    liegt unter `app.html`; alte Lesezeichen auf `…/#/…` werden automatisch
    dorthin weitergeleitet.
 2. Mit E-Mail und Passwort anmelden (bzw. beim ersten Mal registrieren).
-3. Nach dem Login erscheint das Menü mit **Klassen**, **Unterrichte** und
-   **Fokus-Wald**.
+3. Nach dem Login erscheint **Heute**. Oben in der Kopfzeile:
+   - Navigation **Heute · Klassen · Unterrichte · Fokus-Wald**,
+   - **Jetzt: 7b** – die Klasse der aktuellen Stunde laut Stundenplan,
+   - **+ Starten** – Unterricht oder Fokus-Phase starten, die aktuelle Klasse
+     steht zuerst,
+   - das **Konto-Menü** (Name) mit Einstellungen, Datenexport und Abmelden.
+
+   Eine Klasse hat die Reiter **Schüler · Sitzplan · Auswertung · Wald**.
+   Während eines Unterrichts ist die Kopfzeile auf das Nötigste reduziert.
 
 ---
 
@@ -31,7 +38,7 @@ Beim Start eines Unterrichts wählt man eine von zwei Ansichten:
 
 - **Kanban** – drei Spalten, alle Schüler starten links in „Da geht mehr“
   und werden per **Drag & Drop** in die jeweils benachbarte Spalte
-  verschoben – mit Maus, Finger oder Stift, also auch auf dem Tablet.
+  verschoben – mit Maus, Touch oder Stift.
 - **Sortierte Ansicht** – alle Schüler alphabetisch in einem Raster.
   Antippen der **linken** Boxhälfte schaltet einen Zustand zurück, die
   **rechte** Hälfte einen vor; die Position im Raster bleibt dabei fest,
@@ -43,9 +50,8 @@ die App misst in beiden automatisch, **wie lange** jede Person in
 welchem Zustand war, und die Auswertung macht keinen Unterschied
 zwischen ihnen.
 
-- In der **Klassen-Ansicht** lässt sich pro Schüler auswerten, wie viel
-  Zeit in welchem Zustand verbracht wurde – als Summe, in Prozent und
-  aufgeschlüsselt je Unterricht.
+- Unter **Klasse → Auswertung** steht die Verteilung der ganzen Klasse und
+  jeder Person; ein Name führt zu den Zeiten je Unterricht.
 
 Kurzablauf im Unterricht:
 
@@ -54,8 +60,43 @@ Kurzablauf im Unterricht:
    (Kanban oder Sortiert).
 3. Während der Stunde je nach Verhalten verschieben (Kanban) bzw. antippen
    (Sortierte Ansicht).
-4. Am Ende **Unterricht beenden**, um die Zeitmessung zu stoppen.
-5. Auswertung unter **Klassen** → Schüler antippen.
+4. Am Ende **Unterricht beenden**, um die Zeitmessung zu stoppen – oder er
+   endet automatisch (siehe unten).
+5. Auswertung unter **Klassen** → Klasse → **Auswertung**.
+
+---
+
+## Stundenplan und automatisches Unterrichtsende
+
+Unter **Konto-Menü → Einstellungen**. Wer nichts einrichtet, bei dem bleibt
+alles wie gewohnt (außer dem 50-Minuten-Ende, siehe unten).
+
+- **Stundenzeiten**: Beginn der 1. Stunde und dann der Tagesablauf als Folge
+  von Stunden und Pausen mit Dauer in Minuten; die Uhrzeiten werden daraus
+  berechnet. Eine Vorlage (6 × 45 min, Pausen nach der 2. und 4. Stunde)
+  hilft beim Start.
+- **Wochenplan**: Je Wochentag und Stunde eine Klasse auswählen.
+  Aufeinanderfolgende Stunden derselben Klasse gelten als Doppelstunde.
+- Ab 5 Minuten vor Stundenbeginn steht die Klasse überall zuerst: als
+  **Jetzt**-Hinweis in der Kopfzeile, auf **Heute**, unter **+ Starten**, in
+  der Klassenliste und beim Unterricht-Starten.
+
+**Unterricht automatisch beenden** (gilt für Kanban und sortierte Ansicht):
+
+| Einstellung | Wirkung |
+| --- | --- |
+| Spätestens 50 min nach dem Start (Standard) | eine Schulstunde + 5 min |
+| Ende der Stunde laut Stundenplan + n min | z. B. 7a dienstags 11:00–11:45, n = 5 → Ende 11:50; ohne passende Stunde nach 50 min |
+| Nicht nach Zeit beenden | läuft, bis man ihn selbst beendet |
+| zusätzlich: beim Schließen der Seite | beendet die im Tab geöffneten Unterrichte; bloßes Neuladen setzt sie fort |
+
+Das zeitliche Ende passiert auf dem Server: Ist die Seite zu, wird der
+Unterricht beim nächsten Öffnen der App rückwirkend genau zum Endzeitpunkt
+abgeschlossen, und die Auswertung zählt ohnehin nur bis dahin.
+**Fortsetzen** setzt einen neuen Endzeitpunkt nach derselben Regel.
+
+Einmalig muss dafür `supabase/migrations/0007_schedule_autoend.sql` im
+Supabase SQL-Editor ausgeführt werden.
 
 ---
 

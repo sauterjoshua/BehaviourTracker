@@ -15,10 +15,9 @@ import { createClient } from "./vendor/supabase-js-2.45.4.mjs";
 
 const appEl = document.getElementById("app");
 const topbarEl = document.getElementById("topbar");
-const topbarTitleEl = document.getElementById("topbarTitle");
-const topbarUserEl = document.getElementById("topbarUser");
+const topnavEl = document.getElementById("topnav");
+const topbarActionsEl = document.getElementById("topbarActions");
 const backBtn = document.getElementById("backBtn");
-const logoutBtn = document.getElementById("logoutBtn");
 const toastEl = document.getElementById("toast");
 
 /* -------------------------------------------------------------------
@@ -393,6 +392,10 @@ function unwrap({ data, error }) {
 const state = {
   session: null,
   teacher: null,
+  // Migration 0007 (Stundenplan, automatisches Unterrichtsende) ausgefuehrt?
+  scheduleAvailable: false,
+  classIndex: new Map(),   // id -> Name aller eigenen Klassen (fuer Stundenplan und Menues)
+  openLessons: new Set(),  // in diesem Tab laufende Unterrichte (Beenden beim Schliessen)
   cleanup: []        // Aufraeumfunktionen der aktuellen Ansicht (Timer etc.)
 };
 
@@ -441,10 +444,15 @@ function waitForHcaptcha(timeoutMs = 8000) {
    ------------------------------------------------------------------- */
 
 async function ensureTeacher() {
-  const existing = unwrap(
-    await sb.from("teachers").select("id, nickname").limit(1).maybeSingle()
-  );
-  if (existing) return existing;
+  // settings gibt es erst ab Migration 0007; ohne sie laeuft alles wie bisher.
+  let result = await sb.from("teachers").select("id, nickname, settings").limit(1).maybeSingle();
+  state.scheduleAvailable = !result.error;
+  if (result.error) {
+    if (!isMissingFocusSchema(result.error)) throw result.error;
+    result = await sb.from("teachers").select("id, nickname").limit(1).maybeSingle();
+  }
+  const existing = unwrap(result);
+  if (existing) return { ...existing, settings: existing.settings ?? {} };
 
   // Fallback, falls der Signup-Trigger (noch) nicht existiert.
   const user = state.session?.user;
@@ -452,12 +460,13 @@ async function ensureTeacher() {
     cleanName(user?.user_metadata?.nickname || String(user?.email || "Lehrkraft").split("@")[0], 60) ||
     "Lehrkraft";
 
-  return unwrap(
+  const created = unwrap(
     await sb.from("teachers")
       .insert({ auth_user_id: user.id, nickname })
       .select("id, nickname")
       .single()
   );
+  return { ...created, settings: {} };
 }
 
 function renderAuth() {
@@ -660,14 +669,14 @@ const api = {
 
   async listLessons() {
     return unwrap(await sb.from("lessons")
-      .select("id, name, date, ended_at, created_at, class_id, classes(name)")
+      .select(`id, name, date, ended_at, created_at, class_id, classes(name)${lessonExtra()}`)
       .order("created_at", { ascending: false })
       .limit(200));
   },
 
   async getLesson(id) {
     return unwrap(await sb.from("lessons")
-      .select("id, name, date, ended_at, class_id, mode, classes(name)")
+      .select(`id, name, date, ended_at, class_id, mode, created_at, classes(name)${lessonExtra()}`)
       .eq("id", id).maybeSingle());
   },
 
@@ -707,6 +716,32 @@ const api = {
 
   async reopenLesson(lessonId) {
     return unwrap(await sb.rpc("reopen_lesson", { p_lesson_id: lessonId }));
+  },
+
+  /** Setzt den automatischen Endzeitpunkt (null = kein zeitliches Ende). */
+  async setAutoEnd(lessonId, date) {
+    if (!state.scheduleAvailable) return null;
+    return unwrap(await sb.from("lessons")
+      .update({ auto_end_at: date ? date.toISOString() : null }).eq("id", lessonId));
+  },
+
+  /** Beendet faellige Unterrichte serverseitig zum eingestellten Zeitpunkt. */
+  async closeDueLessons() {
+    if (!state.scheduleAvailable) return 0;
+    const { data, error } = await sb.rpc("close_due_lessons");
+    if (error) { console.error(error); return 0; }
+    return data ?? 0;
+  },
+
+  async saveSettings(settings) {
+    return unwrap(await sb.from("teachers").update({ settings }).eq("id", state.teacher.id));
+  },
+
+  /** Zeiten aller Schueler einer Klasse, je Unterricht und Spalte. */
+  async classTimes(classId) {
+    return unwrap(await sb.from("student_lesson_column_seconds")
+      .select("student_id, lesson_id, col:column, seconds")
+      .eq("class_id", classId));
   },
 
   async listFocusClasses() {
@@ -769,6 +804,354 @@ const api = {
   }
 };
 
+const lessonExtra = () => (state.scheduleAvailable ? ", auto_end_at" : "");
+
+/* -------------------------------------------------------------------
+   Stundenplan
+   -------------------------------------------------------------------
+   Gespeichert in teachers.settings.schedule:
+     dayStart: "08:00"                         Beginn der 1. Stunde
+     blocks:   [{ kind: "stunde"|"pause", min }]  Tagesablauf in Minuten
+     slots:    { "<Wochentag 1-5>:<Stunde>": classId }
+   Uhrzeiten ergeben sich fortlaufend aus dayStart und den Dauern; eine
+   unregelmaessige Luecke ist einfach eine (kurze) Pause.
+   ------------------------------------------------------------------- */
+
+const WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"];
+/** So viele Minuten vor Stundenbeginn gilt die Klasse schon als "jetzt". */
+const SCHEDULE_LEAD_MIN = 5;
+/** Ohne Stundenplan endet ein Unterricht spaetestens nach einer Schulstunde + 5 min. */
+const AUTO_END_DEFAULT_MIN = 50;
+const UNLOAD_KEY = "bt.endedOnUnload";
+
+const settings = () => state.teacher?.settings ?? {};
+
+const toMinutes = (hhmm) => {
+  const [hh, mm] = String(hhmm || "0:0").split(":").map(Number);
+  return (hh || 0) * 60 + (mm || 0);
+};
+const toClock = (minutes) => {
+  const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+};
+const formatTime = (date) => date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+/** Tagesablauf mit berechneten Uhrzeiten; Stunden sind ab 1 durchnummeriert. */
+function scheduleRows(schedule = settings().schedule) {
+  const rows = [];
+  let at = toMinutes(schedule?.dayStart ?? "08:00");
+  let n = 0;
+  for (const block of schedule?.blocks ?? []) {
+    const min = Math.max(1, Math.round(Number(block.min) || 0));
+    rows.push({ kind: block.kind, min, start: at, end: at + min, n: block.kind === "stunde" ? ++n : null });
+    at += min;
+  }
+  return rows;
+}
+
+/** Klasse in einer Stunde, nur wenn es sie (noch) gibt. */
+function slotClass(weekday, n, schedule = settings().schedule) {
+  const id = schedule?.slots?.[`${weekday}:${n}`];
+  return id && state.classIndex.has(id) ? id : null;
+}
+
+const hasSchedule = () => Object.values(settings().schedule?.slots ?? {}).some((id) => state.classIndex.has(id));
+
+/** Unterrichtsbloecke eines Tages: aufeinanderfolgende Stunden derselben
+ * Klasse (Doppelstunde, auch ueber eine Pause hinweg) werden zusammengefasst. */
+function dayLessons(date = new Date()) {
+  const weekday = date.getDay();
+  if (weekday < 1 || weekday > 5) return [];
+  const result = [];
+  for (const row of scheduleRows().filter((r) => r.kind === "stunde")) {
+    const classId = slotClass(weekday, row.n);
+    const last = result[result.length - 1];
+    if (classId && last && last.classId === classId && last.lastN === row.n - 1) {
+      last.end = row.end;
+      last.lastN = row.n;
+    } else if (classId) {
+      result.push({ classId, firstN: row.n, lastN: row.n, start: row.start, end: row.end });
+    }
+  }
+  const atMinutes = (m) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), Math.floor(m / 60), m % 60);
+  return result.map((l) => ({
+    ...l,
+    name: state.classIndex.get(l.classId),
+    label: l.firstN === l.lastN ? `${l.firstN}. Stunde` : `${l.firstN}./${l.lastN}. Stunde`,
+    from: atMinutes(l.start),
+    to: atMinutes(l.end)
+  }));
+}
+
+/** Die Stunde, die gerade laeuft (oder in wenigen Minuten beginnt), sonst null. */
+function currentLesson(now = new Date()) {
+  const t = now.getTime();
+  return dayLessons(now).find((l) => t >= l.from.getTime() - SCHEDULE_LEAD_MIN * 60000 && t < l.to.getTime()) ?? null;
+}
+
+function nextLesson(now = new Date()) {
+  return dayLessons(now).find((l) => l.from.getTime() - SCHEDULE_LEAD_MIN * 60000 > now.getTime()) ?? null;
+}
+
+/** Sortiert die Klasse der aktuellen Stunde nach vorn (sonst unveraendert). */
+function currentFirst(list, idOf = (x) => x.id) {
+  const current = currentLesson();
+  if (!current) return list;
+  return [...list.filter((x) => idOf(x) === current.classId), ...list.filter((x) => idOf(x) !== current.classId)];
+}
+
+function nowBadge(classId) {
+  const current = currentLesson();
+  return current && current.classId === classId
+    ? h("span", { class: "badge badge--now" }, `Jetzt · bis ${formatTime(current.to)}`)
+    : null;
+}
+
+async function refreshClassIndex() {
+  const classes = unwrap(await sb.from("classes").select("id, name").order("name"));
+  state.classIndex = new Map(classes.map((c) => [c.id, c.name]));
+  return classes;
+}
+
+/* -------------------------------------------------------------------
+   Automatisches Unterrichtsende
+   ------------------------------------------------------------------- */
+
+function autoEndSettings() {
+  const a = settings().autoEnd ?? {};
+  return {
+    mode: ["fix", "plan", "off"].includes(a.mode) ? a.mode : "fix",
+    plusMin: Math.min(60, Math.max(0, Math.round(Number(a.plusMin ?? 5)) || 0)),
+    onClose: Boolean(a.onClose)
+  };
+}
+
+/** Endzeitpunkt fuer einen jetzt startenden Unterricht, oder null. */
+function autoEndFor(classId, start = new Date()) {
+  const a = autoEndSettings();
+  if (a.mode === "off") return null;
+  if (a.mode === "plan") {
+    const current = currentLesson(start);
+    if (current && current.classId === classId) return new Date(current.to.getTime() + a.plusMin * 60000);
+  }
+  return new Date(start.getTime() + AUTO_END_DEFAULT_MIN * 60000);
+}
+
+/** Beim Schliessen der Seite die hier laufenden Unterrichte beenden.
+ * fetch mit keepalive ueberlebt das Entladen der Seite (supabase-js nicht). */
+window.addEventListener("pagehide", () => {
+  if (!sb || !state.session || !autoEndSettings().onClose || !state.openLessons.size) return;
+  const ids = [...state.openLessons];
+  for (const id of ids) {
+    fetch(`${CONFIG.SUPABASE_URL}/rest/v1/rpc/end_lesson`, {
+      method: "POST",
+      keepalive: true,
+      headers: {
+        apikey: CONFIG.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${state.session.access_token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ p_lesson_id: id })
+    }).catch(() => {});
+  }
+  // Nur fuer ein Neuladen (F5): sessionStorage ueberlebt das, ein geschlossener Tab nicht.
+  try { sessionStorage.setItem(UNLOAD_KEY, JSON.stringify({ ids, at: Date.now() })); } catch { /* egal */ }
+});
+
+/** Wurde die Seite nur neu geladen, die dabei beendeten Unterrichte fortsetzen. */
+async function resumeAfterReload() {
+  let record = null;
+  try {
+    record = JSON.parse(sessionStorage.getItem(UNLOAD_KEY) || "null");
+    sessionStorage.removeItem(UNLOAD_KEY);
+  } catch { return; }
+  const reload = performance.getEntriesByType?.("navigation")?.[0]?.type === "reload";
+  if (!record || !reload || Date.now() - record.at > 60000) return;
+  for (const id of record.ids ?? []) {
+    try {
+      const lesson = await api.getLesson(id);
+      if (!lesson?.ended_at) continue;
+      await api.reopenLesson(id);
+      await api.setAutoEnd(id, autoEndFor(lesson.class_id));
+      state.openLessons.add(id);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+}
+
+/* -------------------------------------------------------------------
+   Kopfzeile: Hauptnavigation, Jetzt-Hinweis, Schnellstart, Konto-Menue
+   ------------------------------------------------------------------- */
+
+const NAV = [
+  { key: "heute", label: "Heute", hash: "/" },
+  { key: "klassen", label: "Klassen", hash: "/classes" },
+  { key: "unterricht", label: "Unterrichte", hash: "/lessons" },
+  { key: "wald", label: "Fokus-Wald", hash: "/focus" }
+];
+
+/**
+ * Aufklappmenue. items() wird bei jedem Oeffnen neu gebaut, damit z. B.
+ * die Klasse der aktuellen Stunde stimmt. Eintraege: { label, sub, onSelect,
+ * danger } oder "-" als Trenner.
+ */
+/** Schliessfunktion des gerade offenen Menues: es ist immer hoechstens eins offen. */
+let closeOpenDropdown = null;
+
+function dropdown({ button, items, align = "end", className = "" }) {
+  const panel = h("div", { class: `dropdown__panel dropdown__panel--${align}`, role: "menu", hidden: true });
+  const wrap = h("div", { class: `dropdown ${className}` }, button, panel);
+  button.setAttribute("aria-haspopup", "menu");
+  button.setAttribute("aria-expanded", "false");
+
+  const close = (focusButton = false) => {
+    if (panel.hidden) return;
+    panel.hidden = true;
+    if (closeOpenDropdown === close) closeOpenDropdown = null;
+    button.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", onOutside, true);
+    document.removeEventListener("keydown", onKey);
+    if (focusButton) button.focus();
+  };
+  const onOutside = (event) => { if (!wrap.contains(event.target)) close(); };
+  const onKey = (event) => {
+    const entries = [...panel.querySelectorAll(".dropdown__item")];
+    const i = entries.indexOf(document.activeElement);
+    if (event.key === "Escape") { event.preventDefault(); close(true); }
+    else if (event.key === "ArrowDown") { event.preventDefault(); entries[(i + 1) % entries.length]?.focus(); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); entries[(i - 1 + entries.length) % entries.length]?.focus(); }
+  };
+
+  button.addEventListener("click", () => {
+    if (!panel.hidden) return close();
+    closeOpenDropdown?.();
+    closeOpenDropdown = close;
+    panel.replaceChildren(...items().map((item) => {
+      if (item === "-") return h("div", { class: "dropdown__sep", role: "separator" });
+      if (item.heading) return h("div", { class: "dropdown__heading" }, item.heading);
+      const el = h("button", {
+        class: `dropdown__item${item.danger ? " dropdown__item--danger" : ""}`, type: "button", role: "menuitem"
+      }, h("span", {}, item.label), item.sub ? h("span", { class: "dropdown__sub" }, item.sub) : null);
+      el.addEventListener("click", () => { close(); item.onSelect(); });
+      return el;
+    }));
+    panel.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", onOutside, true);
+    document.addEventListener("keydown", onKey);
+    panel.querySelector(".dropdown__item")?.focus();
+  });
+  return wrap;
+}
+
+let chromeBuilt = false;
+let nowPillEl = null;
+
+/** Baut Navigation und Menues einmal nach der Anmeldung auf. */
+function buildChrome() {
+  if (chromeBuilt) return;
+  chromeBuilt = true;
+
+  topnavEl.replaceChildren(...NAV.map((item) =>
+    h("a", { class: "topnav__link", href: `#${item.hash}`, dataset: { key: item.key } }, item.label)));
+
+  nowPillEl = h("a", { class: "now-pill", hidden: true });
+
+  const startBtn = h("button", { class: "btn btn--primary topbar__start", type: "button" },
+    h("span", { "aria-hidden": "true" }, "+"), h("span", { class: "topbar__start-label" }, "Starten"));
+  const quickStart = dropdown({
+    button: startBtn,
+    items: () => {
+      const current = currentLesson();
+      const list = [];
+      if (current) {
+        list.push({ heading: `Jetzt: ${current.name} · ${current.label}` },
+          { label: `Unterricht mit ${current.name}`, sub: `bis ${formatTime(current.to)}`, onSelect: () => startLessonFor(current.classId, current.name) },
+          { label: `Fokus-Phase mit ${current.name}`, onSelect: () => navigate(`/focus/${current.classId}`) },
+          "-");
+      }
+      list.push(
+        { label: "Unterricht starten …", sub: "Klasse wählen", onSelect: () => navigate("/lessons/new") },
+        { label: "Fokus-Phase starten …", sub: "Klasse wählen", onSelect: () => navigate("/focus") });
+      return list;
+    }
+  });
+
+  const accountBtn = h("button", { class: "btn btn--ghost topbar__account", type: "button", "aria-label": "Konto-Menü" },
+    h("span", { class: "avatar", "aria-hidden": "true" }, (state.teacher?.nickname || "?").trim().charAt(0).toUpperCase()),
+    h("span", { class: "topbar__name" }, state.teacher?.nickname ?? ""),
+    h("span", { class: "caret", "aria-hidden": "true" }));
+  const account = dropdown({
+    button: accountBtn,
+    items: () => [
+      { heading: state.session?.user?.email ?? "" },
+      { label: "Einstellungen", sub: "Stundenplan, Unterrichtsende, Konto", onSelect: () => navigate("/settings") },
+      { label: "Daten exportieren", onSelect: exportData },
+      "-",
+      { label: "Impressum", onSelect: () => window.open("./impressum.html", "_blank", "noopener") },
+      { label: "Datenschutz", onSelect: () => window.open("./datenschutz.html", "_blank", "noopener") },
+      "-",
+      { label: "Abmelden", onSelect: logout }
+    ]
+  });
+
+  // Unter 860px passt die Navigation nicht mehr nebeneinander: Menue-Knopf.
+  const menuBtn = h("button", { class: "btn btn--ghost topbar__menu", type: "button", "aria-label": "Navigation" },
+    h("span", { class: "burger", "aria-hidden": "true" }));
+  const compactNav = dropdown({
+    button: menuBtn,
+    align: "start",
+    className: "topbar__compact-nav",
+    items: () => NAV.map((item) => ({ label: item.label, onSelect: () => navigate(item.hash) }))
+  });
+
+  topbarActionsEl.replaceChildren(nowPillEl, quickStart, account);
+  topnavEl.before(compactNav);
+  updateNowPill();
+  const timer = setInterval(updateNowPill, 30000);
+  window.addEventListener("pagehide", () => clearInterval(timer), { once: true });
+}
+
+/** Hinweis oben: welche Klasse laut Stundenplan gerade dran ist. */
+function updateNowPill() {
+  if (!nowPillEl) return;
+  const current = currentLesson();
+  nowPillEl.hidden = !current;
+  if (!current) return;
+  nowPillEl.href = `#/classes/${current.classId}`;
+  nowPillEl.title = `${current.label}, ${formatTime(current.from)}–${formatTime(current.to)}`;
+  nowPillEl.replaceChildren(
+    h("span", { class: "now-pill__dot", "aria-hidden": "true" }),
+    h("span", { class: "now-pill__label" }, "Jetzt"),
+    h("strong", {}, current.name),
+    h("span", { class: "now-pill__time" }, `bis ${formatTime(current.to)}`));
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  state.teacher = null;
+  state.openLessons.clear();
+  resetChrome();
+  navigate("/");
+}
+
+async function exportData() {
+  try {
+    const data = await api.exportAll();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = h("a", { href: url, download: `behaviourtracker-export-${new Date().toISOString().slice(0, 10)}.json` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Export heruntergeladen.");
+  } catch (error) {
+    showError(error, "Export fehlgeschlagen.");
+  }
+}
+
 /* -------------------------------------------------------------------
    Router
    ------------------------------------------------------------------- */
@@ -780,13 +1163,21 @@ function parseRoute() {
   return raw.split("/").filter(Boolean).map(decodeURIComponent);
 }
 
-function setChrome({ title, back = null, showUser = true }) {
+/**
+ * Kopfzeile fuer die aktuelle Ansicht: aktiver Navigationspunkt (section),
+ * Zurueck-Pfeil fuer Unterseiten, minimal = Unterrichtsmodus ohne Navigation.
+ */
+function setChrome({ title, back = null, section = null, minimal = false }) {
   topbarEl.hidden = false;
-  // Breite und Brotkrume der Kopfzeile folgen der Ansicht.
+  buildChrome();
+  document.title = title && title !== "BehaviourTracker" ? `${title} – BehaviourTracker` : "BehaviourTracker";
   topbarEl.classList.toggle("topbar--wide", appEl.classList.contains("app--wide"));
-  topbarEl.classList.toggle("topbar--home", !back);
-  topbarTitleEl.textContent = back ? title : "";
-  topbarUserEl.textContent = showUser && state.teacher ? state.teacher.nickname : "";
+  topbarEl.classList.toggle("topbar--minimal", minimal);
+  for (const link of topnavEl.querySelectorAll(".topnav__link")) {
+    if (link.dataset.key === section) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  updateNowPill();
   if (back) {
     backBtn.hidden = false;
     backBtn.onclick = () => navigate(back);
@@ -796,8 +1187,18 @@ function setChrome({ title, back = null, showUser = true }) {
   }
 }
 
+function resetChrome() {
+  chromeBuilt = false;
+  nowPillEl = null;
+  topbarEl.querySelector(".topbar__compact-nav")?.remove();
+  topnavEl.replaceChildren();
+  topbarActionsEl.replaceChildren();
+}
+
 const ROUTES = [
-  { match: (p) => p.length === 0, view: (p) => renderMenu() },
+  { match: (p) => p.length === 0, view: () => renderToday() },
+  { match: (p) => p[0] === "settings" && p.length === 1, view: () => renderSettings() },
+  { match: (p) => p[0] === "classes" && p[2] === "stats" && p.length === 3, view: (p) => renderClassStats(p[1]) },
   { match: (p) => p[0] === "classes" && p.length === 1, view: () => renderClassList() },
   { match: (p) => p[0] === "classes" && p[2] === "students" && p[3], view: (p) => renderStudentStats(p[1], p[3]) },
   { match: (p) => p[0] === "classes" && p[2] === "seating" && p.length === 3, view: (p) => renderSeating(p[1]) },
@@ -813,17 +1214,22 @@ const ROUTES = [
 async function router() {
   if (!sb) return;
   runCleanup();
+  closeOpenDropdown?.();
 
   if (!state.session) { renderAuth(); return; }
   if (!state.teacher) {
     appEl.replaceChildren(loadingView());
     try {
       state.teacher = await ensureTeacher();
+      await refreshClassIndex();
+      await resumeAfterReload();
     } catch (error) {
       showError(error, "Lehrer-Profil konnte nicht geladen werden.");
       return;
     }
   }
+  // Faellige Unterrichte (automatisches Ende) bei jedem Ansichtswechsel abschliessen.
+  await api.closeDueLessons();
 
   const parts = parseRoute();
   const route = ROUTES.find((r) => r.match(parts));
@@ -842,30 +1248,332 @@ async function router() {
 }
 
 /* -------------------------------------------------------------------
-   Ansicht: Menue
+   Ansicht: Heute (Startseite nach der Anmeldung)
    ------------------------------------------------------------------- */
 
-function renderMenu() {
+async function renderToday() {
   appEl.className = "app";
-  setChrome({ title: "BehaviourTracker" });
+  setChrome({ title: "Heute", section: "heute" });
+  appEl.replaceChildren(loadingView());
+
+  const lessons = await api.listLessons();
+  const running = lessons.filter((l) => !l.ended_at);
+  const now = new Date();
+  const current = currentLesson(now);
+  const next = nextLesson(now);
+  const today = dayLessons(now);
+
+  const lead = current
+    ? `Jetzt laut Stundenplan: ${current.name}.`
+    : next ? `Als Nächstes: ${next.name} um ${formatTime(next.from)} Uhr.` : "Was möchtest du tun?";
+
+  const sections = [];
+
+  if (current) {
+    const open = running.find((l) => l.class_id === current.classId);
+    sections.push(h("section", { class: "card now-card" },
+      h("p", { class: "now-card__kicker" },
+        h("span", { class: "now-pill__dot", "aria-hidden": "true" }),
+        `Jetzt · ${current.label} · ${formatTime(current.from)}–${formatTime(current.to)}`),
+      h("h2", {}, current.name),
+      h("div", { class: "row" },
+        open
+          ? h("button", { class: "btn btn--primary", type: "button", onclick: () => navigate(`/lessons/${open.id}`) }, "Laufenden Unterricht öffnen")
+          : h("button", { class: "btn btn--primary", type: "button", onclick: () => startLessonFor(current.classId, current.name) }, "Unterricht starten"),
+        h("button", { class: "btn", type: "button", onclick: () => navigate(`/focus/${current.classId}`) }, "Fokus-Phase"),
+        h("button", { class: "btn", type: "button", onclick: () => navigate(`/classes/${current.classId}/seating`) }, "Sitzplan"),
+        h("button", { class: "btn btn--ghost", type: "button", onclick: () => navigate(`/classes/${current.classId}`) }, "Klasse öffnen"))));
+  }
+
+  if (running.length) {
+    sections.push(h("section", { class: "card" },
+      h("h2", {}, running.length === 1 ? "Läuft gerade" : "Laufen gerade"),
+      h("ul", { class: "list" }, running.map((lesson) =>
+        h("li", { class: "list__item" },
+          h("button", { class: "list__main", type: "button", onclick: () => navigate(`/lessons/${lesson.id}`) },
+            lesson.classes?.name ?? lesson.name,
+            h("span", { class: "list__sub" }, lessonStatusText(lesson))),
+          h("span", { class: "badge badge--live" }, "läuft"))))));
+  }
+
+  if (hasSchedule()) {
+    const t = now.getTime();
+    sections.push(h("section", { class: "card" },
+      h("h2", {}, `${WEEKDAYS[now.getDay() - 1] ?? "Heute"} laut Stundenplan`),
+      today.length
+        ? h("ol", { class: "day" }, today.map((l) => {
+            const status = t >= l.to.getTime() ? "past" : current && current.classId === l.classId && current.firstN === l.firstN ? "now" : "later";
+            return h("li", { class: `day__item day__item--${status}` },
+              h("span", { class: "day__time" }, `${formatTime(l.from)}–${formatTime(l.to)}`),
+              h("button", { class: "list__main", type: "button", onclick: () => navigate(`/classes/${l.classId}`) },
+                l.name, h("span", { class: "list__sub" }, l.label)),
+              status === "now" ? h("span", { class: "badge badge--now" }, "Jetzt") : null);
+          }))
+        : emptyView("Heute stehen keine Stunden im Stundenplan."),
+      h("p", { class: "muted small" },
+        h("a", { href: "#/settings" }, "Stundenplan bearbeiten"))));
+  } else if (state.classIndex.size) {
+    sections.push(h("section", { class: "card hint-card" },
+      h("div", {},
+        h("h2", {}, "Stundenplan einrichten"),
+        h("p", { class: "muted" },
+          "Trage einmal deine Stundenzeiten und Klassen ein. Dann steht zur richtigen Zeit immer die passende Klasse " +
+          "oben, und ein Unterricht kann automatisch am Stundenende enden.")),
+      h("button", { class: "btn", type: "button", onclick: () => navigate("/settings") }, "Zum Stundenplan")));
+  }
+
   const item = (iconName, title, text, hash) =>
     h("button", { class: "menu__item", type: "button", onclick: () => navigate(hash) },
       h("span", { class: "feature__icon" }, icon(iconName)),
       h("h3", {}, title),
       h("p", {}, text));
+
   appEl.replaceChildren(
-    h("div", {},
-      pageHead({
-        eyebrow: formatDate(new Date()),
-        title: `Hallo ${state.teacher.nickname}`,
-        lead: "Was möchtest du tun?"
-      }),
-      h("div", { class: "menu" },
-        item("klassen", "Klassen", "Klassen anlegen, Schülerinnen und Schüler verwalten und Zeiten auswerten.", "/classes"),
-        item("unterricht", "Unterrichte", "Laufende und vergangene Unterrichte öffnen oder einen neuen starten.", "/lessons"),
-        item("wald", "Fokus-Wald", "Lautstärke-Monitor für den Beamer: Ist die Klasse ruhig, wächst ein Baum im Klassenwald.", "/focus")),
-      accountCard())
+    pageHead({ eyebrow: formatDate(now), title: `Hallo ${state.teacher.nickname}`, lead }),
+    sections.length ? h("div", { class: "stack" }, sections) : null,
+    h("div", { class: `menu${sections.length ? " menu--after" : ""}` },
+      item("klassen", "Klassen", "Klassen anlegen, Schülerinnen und Schüler verwalten, Sitzplan und Auswertung.", "/classes"),
+      item("unterricht", "Unterrichte", "Laufende und vergangene Unterrichte öffnen oder einen neuen starten.", "/lessons"),
+      item("wald", "Fokus-Wald", "Lautstärke-Monitor für den Beamer: Ist die Klasse ruhig, wächst ein Baum im Klassenwald.", "/focus"))
   );
+}
+
+/** "seit 10:05 · endet automatisch um 10:55" */
+function lessonStatusText(lesson) {
+  const parts = [];
+  if (lesson.created_at) parts.push(`seit ${formatTime(new Date(lesson.created_at))}`);
+  if (lesson.auto_end_at) parts.push(`endet automatisch um ${formatTime(new Date(lesson.auto_end_at))}`);
+  return parts.join(" · ");
+}
+
+/* -------------------------------------------------------------------
+   Ansicht: Einstellungen (Stundenplan, Unterrichtsende, Konto)
+   ------------------------------------------------------------------- */
+
+const SCHEDULE_PRESET = {
+  dayStart: "08:00",
+  blocks: [
+    { kind: "stunde", min: 45 }, { kind: "stunde", min: 45 }, { kind: "pause", min: 20 },
+    { kind: "stunde", min: 45 }, { kind: "stunde", min: 45 }, { kind: "pause", min: 15 },
+    { kind: "stunde", min: 45 }, { kind: "stunde", min: 45 }
+  ]
+};
+
+async function renderSettings() {
+  appEl.className = "app";
+  setChrome({ title: "Einstellungen" });
+  appEl.replaceChildren(loadingView());
+  const classes = await refreshClassIndex();
+
+  if (!state.scheduleAvailable) {
+    appEl.replaceChildren(
+      pageHead({ title: "Einstellungen" }),
+      h("div", { class: "stack" },
+        h("div", { class: "card" },
+          h("h2", {}, "Datenbank-Update fehlt"),
+          h("p", { class: "muted" },
+            "Für Stundenplan und automatisches Unterrichtsende muss einmalig die Migration " +
+            "supabase/migrations/0007_schedule_autoend.sql im Supabase SQL-Editor ausgeführt werden.")),
+        accountCard()));
+    return;
+  }
+
+  const draft = JSON.parse(JSON.stringify(settings()));
+  draft.schedule ??= {};
+  draft.schedule.dayStart ??= "08:00";
+  draft.schedule.blocks ??= [];
+  draft.schedule.slots ??= {};
+  draft.autoEnd = autoEndSettings();
+
+  const statusEl = h("span", { class: "save-status", role: "status", "aria-live": "polite" });
+  let saveTimer = null;
+  function scheduleSave() {
+    statusEl.textContent = "Wird gespeichert …";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 600);
+  }
+  async function save() {
+    // Zuordnungen zu entfernten Stunden oder Klassen aufraeumen.
+    const count = scheduleRows(draft.schedule).filter((r) => r.kind === "stunde").length;
+    for (const key of Object.keys(draft.schedule.slots)) {
+      const [, n] = key.split(":").map(Number);
+      if (n > count || !state.classIndex.has(draft.schedule.slots[key])) delete draft.schedule.slots[key];
+    }
+    try {
+      await api.saveSettings(draft);
+      state.teacher.settings = JSON.parse(JSON.stringify(draft));
+      updateNowPill();
+      statusEl.textContent = "Gespeichert";
+    } catch (error) {
+      statusEl.textContent = "";
+      showError(error, "Einstellungen konnten nicht gespeichert werden.");
+    }
+  }
+  registerCleanup(() => { if (saveTimer) { clearTimeout(saveTimer); save(); } });
+
+  /* ----- Stundenzeiten ----- */
+
+  const timesEl = h("div");
+  const weekEl = h("div");
+
+  function changed() { drawTimes(); drawWeek(); scheduleSave(); }
+
+  function drawTimes() {
+    const startInput = h("input", { class: "input input--time", type: "time", value: draft.schedule.dayStart, "aria-label": "Beginn der 1. Stunde" });
+    startInput.addEventListener("change", () => {
+      if (!startInput.value) return;
+      draft.schedule.dayStart = startInput.value;
+      changed();
+    });
+
+    const rows = scheduleRows(draft.schedule);
+    const table = rows.length
+      ? h("table", { class: "table times" },
+          h("thead", {}, h("tr", {},
+            h("th", {}, ""), h("th", {}, "Zeit"), h("th", {}, "Dauer"), h("th", {}, h("span", { class: "sr-only" }, "Entfernen")))),
+          h("tbody", {}, rows.map((row, i) => {
+            const minInput = h("input", {
+              class: "input input--num", type: "number", min: "1", max: "240", step: "1", inputmode: "numeric",
+              value: String(row.min), "aria-label": `Dauer ${row.n ? `${row.n}. Stunde` : "Pause"} in Minuten`
+            });
+            minInput.addEventListener("change", () => {
+              const min = Math.round(Number(minInput.value));
+              if (!(min >= 1 && min <= 240)) { minInput.value = String(row.min); return; }
+              draft.schedule.blocks[i].min = min;
+              changed();
+            });
+            return h("tr", { class: row.kind === "pause" ? "times__pause" : "" },
+              h("th", { scope: "row" }, row.n ? `${row.n}. Stunde` : "Pause"),
+              h("td", { class: "num" }, `${toClock(row.start)}–${toClock(row.end)}`),
+              h("td", {}, h("span", { class: "times__min" }, minInput, "min")),
+              h("td", {}, h("button", {
+                class: "btn btn--sm btn--ghost btn--icon", type: "button", "aria-label": "Zeile entfernen",
+                onclick: () => { draft.schedule.blocks.splice(i, 1); changed(); }
+              }, trashIcon())));
+          })))
+      : h("div", { class: "empty-hint" },
+          h("p", { class: "muted" }, "Noch keine Stundenzeiten. Starte mit einer Vorlage und passe sie an:"),
+          h("button", { class: "btn", type: "button", onclick: () => {
+            draft.schedule.blocks = SCHEDULE_PRESET.blocks.map((b) => ({ ...b }));
+            changed();
+          } }, "Vorlage: 6 Stunden à 45 min, Pausen nach der 2. und 4. Stunde"));
+
+    const lastLesson = [...draft.schedule.blocks].reverse().find((b) => b.kind === "stunde");
+    timesEl.replaceChildren(
+      h("label", { class: "field field--inline" }, h("span", { class: "field__label" }, "Beginn der 1. Stunde"), startInput),
+      table,
+      h("div", { class: "row" },
+        h("button", { class: "btn", type: "button", onclick: () => {
+          draft.schedule.blocks.push({ kind: "stunde", min: lastLesson?.min ?? 45 });
+          changed();
+        } }, "+ Stunde"),
+        h("button", { class: "btn", type: "button", onclick: () => {
+          draft.schedule.blocks.push({ kind: "pause", min: 15 });
+          changed();
+        } }, "+ Pause")));
+  }
+
+  /* ----- Wochenplan ----- */
+
+  function drawWeek() {
+    const rows = scheduleRows(draft.schedule);
+    if (!rows.some((r) => r.kind === "stunde")) {
+      weekEl.replaceChildren(emptyView("Lege zuerst oben die Stundenzeiten an."));
+      return;
+    }
+    if (!classes.length) {
+      weekEl.replaceChildren(emptyView("Lege zuerst unter „Klassen“ deine Klassen an."));
+      return;
+    }
+    const cell = (weekday, n) => {
+      const key = `${weekday}:${n}`;
+      const select = h("select", { class: "input week__select", "aria-label": `${WEEKDAYS[weekday - 1]}, ${n}. Stunde` },
+        h("option", { value: "" }, "–"),
+        classes.map((c) => h("option", { value: c.id, selected: draft.schedule.slots[key] === c.id }, c.name)));
+      select.addEventListener("change", () => {
+        if (select.value) draft.schedule.slots[key] = select.value;
+        else delete draft.schedule.slots[key];
+        select.closest("td").classList.toggle("is-set", Boolean(select.value));
+        scheduleSave();
+      });
+      return h("td", { class: draft.schedule.slots[key] ? "is-set" : "" }, select);
+    };
+    weekEl.replaceChildren(h("div", { class: "week__scroll" },
+      h("table", { class: "week" },
+        h("thead", {}, h("tr", {}, h("th", {}, ""), WEEKDAYS.map((d) => h("th", { scope: "col" },
+          h("span", { class: "week__long" }, d), h("span", { class: "week__short", "aria-hidden": "true" }, d.slice(0, 2)))))),
+        h("tbody", {}, rows.map((row) => row.kind === "pause"
+          ? h("tr", { class: "week__pause" }, h("td", { colspan: "6" }, `Pause · ${row.min} min`))
+          : h("tr", {},
+              h("th", { scope: "row" }, `${row.n}.`, h("span", { class: "week__time" }, `${toClock(row.start)}–${toClock(row.end)}`)),
+              WEEKDAYS.map((_, d) => cell(d + 1, row.n))))))));
+  }
+
+  /* ----- Automatisches Unterrichtsende ----- */
+
+  const plusInput = h("input", {
+    class: "input input--num", type: "number", min: "0", max: "60", step: "1", inputmode: "numeric",
+    value: String(draft.autoEnd.plusMin), "aria-label": "Minuten nach Stundenende"
+  });
+  const radio = (value, label, extra = null) => {
+    const input = h("input", { type: "radio", name: "autoEnd", value, checked: draft.autoEnd.mode === value });
+    input.addEventListener("change", () => {
+      draft.autoEnd.mode = value;
+      plusInput.disabled = value !== "plan";
+      scheduleSave();
+    });
+    return h("label", { class: "choice" }, input, h("span", {}, label, extra));
+  };
+  plusInput.disabled = draft.autoEnd.mode !== "plan";
+  plusInput.addEventListener("change", () => {
+    const n = Math.round(Number(plusInput.value));
+    draft.autoEnd.plusMin = n >= 0 && n <= 60 ? n : 5;
+    plusInput.value = String(draft.autoEnd.plusMin);
+    scheduleSave();
+  });
+  const closeInput = h("input", { type: "checkbox", checked: draft.autoEnd.onClose });
+  closeInput.addEventListener("change", () => { draft.autoEnd.onClose = closeInput.checked; scheduleSave(); });
+
+  const autoEndCard = h("section", { class: "card" },
+    h("h2", {}, "Unterricht automatisch beenden"),
+    h("p", { class: "muted small" }, "Damit kein Unterricht versehentlich bis zum Abend weiterläuft und die Auswertung verfälscht."),
+    h("div", { class: "choices" },
+      radio("fix", `Spätestens ${AUTO_END_DEFAULT_MIN} Minuten nach dem Start`,
+        h("span", { class: "choice__sub" }, "Eine Schulstunde plus 5 Minuten. Standard.")),
+      radio("plan", "Am Ende der Stunde laut Stundenplan",
+        h("span", { class: "choice__sub" },
+          h("span", { class: "choice__inline" }, "plus ", plusInput, " Minuten, falls du überziehst."),
+          ` Ohne passende Stunde im Stundenplan nach ${AUTO_END_DEFAULT_MIN} Minuten. Doppelstunden zählen als eine Stunde.`)),
+      radio("off", "Nicht nach Zeit beenden",
+        h("span", { class: "choice__sub" }, "Der Unterricht läuft, bis du ihn selbst beendest."))),
+    h("label", { class: "check check--setting" }, closeInput,
+      h("span", {}, h("strong", {}, "Beenden, wenn die Seite geschlossen wird. "),
+        "Gilt für Unterrichte, die in diesem Tab offen waren. Beim bloßen Neuladen läuft der Unterricht weiter.")));
+
+  drawTimes();
+  drawWeek();
+
+  appEl.replaceChildren(
+    pageHead({
+      title: "Einstellungen",
+      lead: "Änderungen werden automatisch gespeichert.",
+      actions: [statusEl]
+    }),
+    h("div", { class: "stack" },
+      h("section", { class: "card" },
+        h("h2", {}, "Stundenzeiten"),
+        h("p", { class: "muted small" },
+          "Wann beginnt die 1. Stunde, wie lange dauern Stunden und Pausen? Die Uhrzeiten werden daraus berechnet. " +
+          "Eine unregelmäßige Lücke trägst du einfach als kurze Pause ein."),
+        timesEl),
+      h("section", { class: "card" },
+        h("h2", {}, "Wochenplan"),
+        h("p", { class: "muted small" },
+          "Ordne jeder Stunde eine Klasse zu. Zur richtigen Zeit steht diese Klasse dann überall zuerst – " +
+          "in der Kopfzeile, auf „Heute“ und beim Starten."),
+        weekEl),
+      autoEndCard,
+      accountCard()));
 }
 
 /** Konto & Daten: Export und Loeschung (Betroffenenrechte nach DSGVO). */
@@ -873,21 +1581,8 @@ function accountCard() {
   const exportBtn = h("button", { class: "btn", type: "button" }, "Daten exportieren");
   exportBtn.addEventListener("click", async () => {
     exportBtn.disabled = true;
-    try {
-      const data = await api.exportAll();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = h("a", { href: url, download: `behaviourtracker-export-${new Date().toISOString().slice(0, 10)}.json` });
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast("Export heruntergeladen.");
-    } catch (error) {
-      showError(error, "Export fehlgeschlagen.");
-    } finally {
-      exportBtn.disabled = false;
-    }
+    await exportData();
+    exportBtn.disabled = false;
   });
 
   const deleteBtn = h("button", { class: "btn btn--danger", type: "button" }, "Konto löschen");
@@ -908,12 +1603,13 @@ function accountCard() {
       // Der User existiert nicht mehr: nur die lokale Sitzung entfernen.
       await sb.auth.signOut({ scope: "local" });
       state.teacher = null;
+      resetChrome();
       navigate("/");
       toast("Dein Konto und alle Daten wurden gelöscht.");
     },
     "Endgültig löschen"));
 
-  return h("section", { class: "card account" },
+  return h("section", { class: "card" },
     h("h2", {}, "Konto & Daten"),
     h("p", { class: "muted small" },
       `Angemeldet als ${state.session?.user?.email ?? ""}. Du kannst jederzeit alle deine Daten ` +
@@ -927,10 +1623,11 @@ function accountCard() {
 
 async function renderClassList() {
   appEl.className = "app";
-  setChrome({ title: "Klassen", back: "/" });
+  setChrome({ title: "Klassen", section: "klassen" });
   appEl.replaceChildren(loadingView());
 
-  const classes = await api.listClasses();
+  const classes = currentFirst(await api.listClasses());
+  state.classIndex = new Map(classes.map((c) => [c.id, c.name]));
 
   const nameInput = h("input", {
     class: "input", type: "text", maxlength: "80", placeholder: "Klassenname, z. B. 7b"
@@ -964,6 +1661,7 @@ async function renderClassList() {
             cls.name,
             h("span", { class: "list__sub" },
               count === 1 ? "1 Schülerin/Schüler" : `${count} Schülerinnen und Schüler`)),
+          nowBadge(cls.id),
           h("button", {
             class: "btn btn--sm btn--danger",
             onclick: () => confirmDelete(
@@ -984,18 +1682,54 @@ async function renderClassList() {
   );
 }
 
+/** Reiter einer Klasse: alles zu einer Klasse an einem Ort. */
+function classTabs(classId, active) {
+  const tabs = [
+    ["schueler", "Schüler", `/classes/${classId}`],
+    ["sitzplan", "Sitzplan", `/classes/${classId}/seating`],
+    ["auswertung", "Auswertung", `/classes/${classId}/stats`],
+    ["wald", "Wald", `/focus/${classId}`]
+  ];
+  return h("nav", { class: "tabs", "aria-label": "Bereiche der Klasse" },
+    tabs.map(([key, label, hash]) =>
+      h("a", { class: "tabs__link", href: `#${hash}`, "aria-current": key === active ? "page" : null }, label)));
+}
+
+/** Kopf einer Klassen-Unterseite: Name, Jetzt-Hinweis, Schnellaktionen, Reiter. */
+function classHead(cls, active, { lead = null, canStart = true } = {}) {
+  const current = currentLesson();
+  return [
+    pageHead({
+      eyebrow: current && current.classId === cls.id
+        ? `Jetzt · ${current.label} · bis ${formatTime(current.to)}`
+        : "Klasse",
+      title: cls.name,
+      lead,
+      actions: [
+        h("button", { class: "btn", type: "button", onclick: () => navigate(`/focus/${cls.id}`) }, "Fokus-Phase"),
+        h("button", {
+          class: "btn btn--primary", type: "button", disabled: !canStart,
+          title: canStart ? null : "Zuerst Schülerinnen und Schüler eintragen",
+          onclick: () => startLessonFor(cls.id, cls.name)
+        }, "Unterricht starten")
+      ]
+    }),
+    classTabs(cls.id, active)
+  ];
+}
+
 /* -------------------------------------------------------------------
    Ansicht: Klassendetail (Schuelerliste)
    ------------------------------------------------------------------- */
 
 async function renderClassDetail(classId) {
   appEl.className = "app";
-  setChrome({ title: "Klasse", back: "/classes" });
+  setChrome({ title: "Klasse", back: "/classes", section: "klassen" });
   appEl.replaceChildren(loadingView());
 
   const cls = await api.getClass(classId);
   if (!cls) { toast("Klasse nicht gefunden.", "error"); return navigate("/classes"); }
-  setChrome({ title: cls.name, back: "/classes" });
+  setChrome({ title: cls.name, back: "/classes", section: "klassen" });
 
   const students = await api.listStudents(classId);
 
@@ -1040,22 +1774,9 @@ async function renderClassDetail(classId) {
     : emptyView("Noch keine Schülerinnen und Schüler in dieser Klasse.");
 
   appEl.replaceChildren(
-    pageHead({
-      eyebrow: "Klasse",
-      title: cls.name,
+    ...classHead(cls, "schueler", {
       lead: students.length === 1 ? "1 Schülerin/Schüler" : `${students.length} Schülerinnen und Schüler`,
-      actions: [
-        h("button", {
-          class: "btn",
-          disabled: students.length === 0,
-          onclick: () => navigate(`/classes/${classId}/seating`)
-        }, "Sitzplan"),
-        h("button", {
-          class: "btn btn--primary",
-          disabled: students.length === 0,
-          onclick: () => startLessonFor(classId, cls.name)
-        }, "Unterricht starten")
-      ]
+      canStart: students.length > 0
     }),
     h("div", { class: "stack" },
       h("div", { class: "card" },
@@ -1065,7 +1786,7 @@ async function renderClassDetail(classId) {
           "Bitte nur mit Erlaubnis deiner Schule eintragen.")),
       h("div", { class: "card" },
         h("h2", {}, "Klassenliste"),
-        h("p", { class: "muted small" }, "Auf einen Namen tippen, um die Spaltenzeiten zu sehen."),
+        h("p", { class: "muted small" }, "Auf einen Namen klicken, um die Zeiten zu sehen."),
         list))
   );
   // `autofocus` greift beim dynamischen Neuaufbau nach dem Anlegen nicht
@@ -1181,12 +1902,12 @@ function autoSeatSlots(occupied) {
 
 async function renderSeating(classId) {
   appEl.className = "app app--wide";
-  setChrome({ title: "Sitzplan", back: `/classes/${classId}` });
+  setChrome({ title: "Sitzplan", back: "/classes", section: "klassen" });
   appEl.replaceChildren(loadingView());
 
   const cls = await api.getClass(classId);
   if (!cls) { toast("Klasse nicht gefunden.", "error"); return navigate("/classes"); }
-  setChrome({ title: `Sitzplan ${cls.name}`, back: `/classes/${classId}` });
+  setChrome({ title: `Sitzplan ${cls.name}`, back: "/classes", section: "klassen" });
 
   let students;
   try {
@@ -1224,6 +1945,7 @@ async function renderSeating(classId) {
   }, "Alle leeren");
 
   appEl.replaceChildren(
+    ...classHead(cls, "sitzplan", { canStart: students.length > 0 }),
     h("div", { class: "stack" },
       h("div", { class: "card stack" },
         h("div", { class: "row", style: "justify-content:space-between" },
@@ -1235,7 +1957,7 @@ async function renderSeating(classId) {
         h("div", { class: "seating__board" }, "Tafel")),
       h("p", { class: "muted small" },
         "Tische in den Raum ziehen. An jeder Seite eines anderen Tisches rasten sie bündig ein. " +
-        "Antippen dreht einen Tisch hochkant, z. B. für die Stirnseite einer Tischreihe. " +
+        "Anklicken dreht einen Tisch hochkant, z. B. für die Stirnseite einer Tischreihe. " +
         "Zurück in die Ablage ziehen, um einen Platz freizugeben."))
   );
 
@@ -1423,17 +2145,95 @@ async function renderSeating(classId) {
 }
 
 /* -------------------------------------------------------------------
+   Ansicht: Auswertung einer Klasse
+   ------------------------------------------------------------------- */
+
+/** Gestapelter Balken der drei Zustaende. */
+function stateBar(totals, { small = false } = {}) {
+  const sum = totals.links + totals.mitte + totals.rechts;
+  const share = (v) => (sum > 0 ? (v / sum) * 100 : 0);
+  return h("div", {
+    class: `stats__bar${small ? " stats__bar--small" : ""}`, role: "img",
+    "aria-label": COLUMNS.map((c) => `${c.title}: ${Math.round(share(totals[c.key]))} Prozent`).join(", ")
+  }, COLUMNS.map((c) => h("div", { class: `stats__seg stats__seg--${c.key}`, style: `width:${share(totals[c.key])}%` })));
+}
+
+async function renderClassStats(classId) {
+  appEl.className = "app";
+  setChrome({ title: "Auswertung", back: "/classes", section: "klassen" });
+  appEl.replaceChildren(loadingView());
+
+  const cls = await api.getClass(classId);
+  if (!cls) { toast("Klasse nicht gefunden.", "error"); return navigate("/classes"); }
+  setChrome({ title: `Auswertung ${cls.name}`, back: "/classes", section: "klassen" });
+
+  const [students, rows] = await Promise.all([api.listStudents(classId), api.classTimes(classId)]);
+  const empty = () => ({ links: 0, mitte: 0, rechts: 0, lessons: new Set() });
+  const per = new Map(students.map((st) => [st.id, empty()]));
+  const total = empty();
+  for (const row of rows) {
+    const entry = per.get(row.student_id);
+    const seconds = Number(row.seconds) || 0;
+    if (!entry || !(row.col in total)) continue;
+    entry[row.col] += seconds;
+    entry.lessons.add(row.lesson_id);
+    total[row.col] += seconds;
+    total.lessons.add(row.lesson_id);
+  }
+  const sum = (t) => t.links + t.mitte + t.rechts;
+  const goodShare = (t) => (sum(t) > 0 ? Math.round(((t.mitte + t.rechts) / sum(t)) * 100) : null);
+
+  const table = students.length
+    ? h("table", { class: "table class-stats" },
+        h("thead", {}, h("tr", {},
+          h("th", {}, "Name"),
+          h("th", {}, "Verteilung"),
+          h("th", { class: "num" }, "gut oder besser"),
+          h("th", { class: "num" }, "erfasst"))),
+        h("tbody", {}, students.map((st) => {
+          const t = per.get(st.id);
+          const share = goodShare(t);
+          return h("tr", {},
+            h("td", {}, h("a", { href: `#/classes/${classId}/students/${st.id}` }, st.name)),
+            h("td", { class: "class-stats__bar" }, sum(t) ? stateBar(t, { small: true }) : h("span", { class: "muted small" }, "–")),
+            h("td", { class: "num" }, share === null ? "–" : `${share} %`),
+            h("td", { class: "num" }, sum(t) ? formatDurationLong(sum(t)) : "–"));
+        })))
+    : emptyView("Noch keine Schülerinnen und Schüler in dieser Klasse.");
+
+  appEl.replaceChildren(
+    ...classHead(cls, "auswertung", {
+      lead: total.lessons.size
+        ? `Erfasst über ${total.lessons.size} ${total.lessons.size === 1 ? "Unterricht" : "Unterrichte"}.`
+        : "Noch keine Unterrichte erfasst.",
+      canStart: students.length > 0
+    }),
+    h("div", { class: "stack" },
+      h("div", { class: "card" },
+        h("h2", {}, "Ganze Klasse"),
+        stateBar(total),
+        h("div", { class: "stats__grid" },
+          COLUMNS.map((c) => h("div", { class: "stat" },
+            h("div", { class: "stat__label" }, c.title),
+            h("div", { class: "stat__value" }, sum(total) ? `${Math.round((total[c.key] / sum(total)) * 100)} %` : "–"))))),
+      h("div", { class: "card" },
+        h("h2", {}, "Nach Schülerin / Schüler"),
+        h("p", { class: "muted small" }, "Namen anklicken, um die Zeiten je Unterricht zu sehen."),
+        h("div", { class: "table-scroll" }, table))));
+}
+
+/* -------------------------------------------------------------------
    Ansicht: Zeiten einer Schuelerin / eines Schuelers
    ------------------------------------------------------------------- */
 
 async function renderStudentStats(classId, studentId) {
   appEl.className = "app";
-  setChrome({ title: "Zeiten", back: `/classes/${classId}` });
+  setChrome({ title: "Zeiten", back: `/classes/${classId}/stats`, section: "klassen" });
   appEl.replaceChildren(loadingView());
 
   const student = await api.getStudent(studentId);
   if (!student) { toast("Schüler nicht gefunden.", "error"); return navigate(`/classes/${classId}`); }
-  setChrome({ title: student.name, back: `/classes/${classId}` });
+  setChrome({ title: student.name, back: `/classes/${classId}/stats`, section: "klassen" });
 
   const rows = await api.studentTimes(studentId);
 
@@ -1486,17 +2286,18 @@ async function renderStudentStats(classId, studentId) {
 
   appEl.replaceChildren(
     pageHead({ eyebrow: "Auswertung", title: student.name }),
+    classTabs(classId, "auswertung"),
     h("div", { class: "stack" },
       h("div", { class: "card" },
         h("h2", {}, "Gesamtzeiten"),
         h("p", { class: "muted small" },
           grandTotal > 0
-            ? `Erfasst ueber ${lessons.length} ${lessons.length === 1 ? "Unterricht" : "Unterrichte"} – insgesamt ${formatDurationLong(grandTotal)}.`
+            ? `Erfasst über ${lessons.length} ${lessons.length === 1 ? "Unterricht" : "Unterrichte"} – insgesamt ${formatDurationLong(grandTotal)}.`
             : "Noch keine Daten."),
         bar, tiles),
       h("div", { class: "card" },
         h("h2", {}, "Nach Unterricht"),
-        table))
+        h("div", { class: "table-scroll" }, table)))
   );
 }
 
@@ -1506,7 +2307,7 @@ async function renderStudentStats(classId, studentId) {
 
 async function renderLessonList() {
   appEl.className = "app";
-  setChrome({ title: "Unterrichte", back: "/" });
+  setChrome({ title: "Unterrichte", section: "unterricht" });
   appEl.replaceChildren(loadingView());
 
   const lessons = await api.listLessons();
@@ -1517,7 +2318,8 @@ async function renderLessonList() {
           h("button", { class: "list__main", onclick: () => navigate(`/lessons/${lesson.id}`) },
             lesson.name,
             h("span", { class: "list__sub" },
-              `${lesson.classes?.name ?? "Klasse entfernt"} · ${formatDate(lesson.date)}`)),
+              `${lesson.classes?.name ?? "Klasse entfernt"} · ${formatDate(lesson.date)}` +
+              (!lesson.ended_at && lesson.auto_end_at ? ` · endet um ${formatTime(new Date(lesson.auto_end_at))}` : ""))),
           lesson.ended_at
             ? h("span", { class: "badge" }, "beendet")
             : h("span", { class: "badge badge--live" }, "läuft"),
@@ -1548,11 +2350,11 @@ async function renderLessonList() {
 
 async function renderNewLesson() {
   appEl.className = "app";
-  setChrome({ title: "Unterricht starten", back: "/lessons" });
+  setChrome({ title: "Unterricht starten", back: "/lessons", section: "unterricht" });
   appEl.replaceChildren(loadingView());
 
   const classes = await api.listClasses();
-  const usable = classes.filter((cls) => (cls.students?.[0]?.count ?? 0) > 0);
+  const usable = currentFirst(classes.filter((cls) => (cls.students?.[0]?.count ?? 0) > 0));
 
   if (!usable.length) {
     appEl.replaceChildren(
@@ -1576,6 +2378,7 @@ async function renderNewLesson() {
           h("button", { class: "list__main", onclick: () => startLessonFor(cls.id, cls.name) },
             cls.name,
             h("span", { class: "list__sub" }, `${cls.name} ${today}`)),
+          nowBadge(cls.id),
           h("span", { class: "badge" }, `${cls.students?.[0]?.count ?? 0}`)))))
   );
 }
@@ -1587,6 +2390,13 @@ async function startLessonFor(classId, className) {
   toast(`Unterricht für ${className} wird gestartet…`);
   try {
     const lessonId = await api.startLesson(classId, mode);
+    try {
+      await api.setAutoEnd(lessonId, autoEndFor(classId));
+    } catch (error) {
+      // Der Unterricht laeuft trotzdem, nur ohne automatisches Ende.
+      console.error(error);
+    }
+    state.openLessons.add(lessonId);
     navigate(`/lessons/${lessonId}`);
   } catch (error) {
     showError(error, "Unterricht konnte nicht gestartet werden.");
@@ -1602,12 +2412,30 @@ async function renderBoard(lessonId) {
   // muss der Timer der vorherigen Instanz gestoppt werden.
   runCleanup();
   appEl.className = "app app--wide";
-  setChrome({ title: "Unterricht", back: "/lessons" });
+  setChrome({ title: "Unterricht", back: "/lessons", minimal: true });
   appEl.replaceChildren(loadingView());
 
   const lesson = await api.getLesson(lessonId);
   if (!lesson) { toast("Unterricht nicht gefunden.", "error"); return navigate("/lessons"); }
-  setChrome({ title: lesson.name, back: "/lessons" });
+  setChrome({ title: lesson.name, back: "/lessons", minimal: true });
+
+  // Offener Unterricht in diesem Tab: wird ggf. beim Schliessen beendet und
+  // zum eingestellten Zeitpunkt automatisch abgeschlossen.
+  if (lesson.ended_at) {
+    state.openLessons.delete(lessonId);
+  } else {
+    state.openLessons.add(lessonId);
+    if (lesson.auto_end_at) {
+      const wait = new Date(lesson.auto_end_at).getTime() - Date.now();
+      const timer = setTimeout(async () => {
+        await api.closeDueLessons();
+        state.openLessons.delete(lessonId);
+        await renderBoard(lessonId);
+        toast("Unterricht automatisch beendet.");
+      }, Math.min(Math.max(0, wait) + 1000, 2 ** 31 - 1));
+      registerCleanup(() => clearTimeout(timer));
+    }
+  }
 
   const sorted = lesson.mode === "sortiert";
   const boardEl = h("div", { class: sorted ? "sorted-grid" : "board" });
@@ -1803,21 +2631,38 @@ async function renderBoard(lessonId) {
     }
   }
 
+  function boardStatus() {
+    if (lesson.ended_at) return `${formatDate(lesson.date)} · beendet`;
+    const parts = [`${formatDate(lesson.date)} · läuft`];
+    if (lesson.auto_end_at) parts.push(`endet automatisch um ${formatTime(new Date(lesson.auto_end_at))}`);
+    if (autoEndSettings().onClose && state.scheduleAvailable) parts.push("endet beim Schließen der Seite");
+    return parts.join(" · ");
+  }
+
   function drawHeader() {
     const actions = lesson.ended_at
       ? h("button", { class: "btn", onclick: async () => {
-          try { await api.reopenLesson(lessonId); await renderBoard(lessonId); toast("Unterricht fortgesetzt."); }
+          try {
+            await api.reopenLesson(lessonId);
+            await api.setAutoEnd(lessonId, autoEndFor(lesson.class_id));
+            await renderBoard(lessonId);
+            toast("Unterricht fortgesetzt.");
+          }
           catch (error) { showError(error); }
         } }, "Fortsetzen")
       : h("button", { class: "btn btn--primary", onclick: () => confirmDelete(
           "Unterricht jetzt beenden? Alle laufenden Zeiten werden gestoppt.",
-          async () => { await api.endLesson(lessonId); await renderBoard(lessonId); toast("Unterricht beendet."); },
+          async () => {
+            await api.endLesson(lessonId);
+            state.openLessons.delete(lessonId);
+            await renderBoard(lessonId);
+            toast("Unterricht beendet.");
+          },
           "Beenden") }, "Unterricht beenden");
 
     const info = h("div", { style: sorted ? "min-width:0" : "flex:1 1 auto;min-width:0" },
       h("strong", {}, lesson.classes?.name ?? "Klasse"),
-      h("span", { class: "list__sub" },
-        `${formatDate(lesson.date)}${lesson.ended_at ? " · beendet" : " · läuft"}`));
+      h("span", { class: "list__sub" }, boardStatus()));
 
     headerEl.replaceChildren(...(sorted ? [info, statsEl, actions] : [info, actions]));
   }
@@ -2317,7 +3162,7 @@ function forestLandscape(groves, { compact = false } = {}) {
   const track = h("div", { class: "landscape__track" }, groves);
   const scroller = h("div", {
     class: `landscape${compact ? " landscape--compact" : ""}`, tabindex: "0",
-    role: "region", "aria-label": "Wälder – zum Erkunden seitlich wischen oder ziehen"
+    role: "region", "aria-label": "Wälder – zum Erkunden zur Seite ziehen oder mit den Pfeiltasten scrollen"
   }, track);
 
   let drag = null;
@@ -2490,7 +3335,7 @@ function renderFocusSchemaHint() {
 
 async function renderFocusHome() {
   appEl.className = "app";
-  setChrome({ title: "Fokus-Wald", back: "/" });
+  setChrome({ title: "Fokus-Wald", section: "wald" });
   appEl.replaceChildren(loadingView());
 
   let classes;
@@ -2509,8 +3354,22 @@ async function renderFocusHome() {
           h("button", { class: "list__main", onclick: () => navigate(`/focus/${entry.cls.id}`) },
             entry.cls.name,
             h("span", { class: "list__sub" },
-              `${treesLabel(entry.count)} · ${entry.minutes} Fokus-Minuten`)))))
+              `${treesLabel(entry.count)} · ${entry.minutes} Fokus-Minuten`)),
+          nowBadge(entry.cls.id))))
     : emptyView("Noch keine Klassen. Lege zuerst unter „Klassen“ eine an.");
+
+  // Klasse der aktuellen Stunde direkt anbieten; das Ranking bleibt unveraendert.
+  const current = currentLesson();
+  const nowCard = current && classes.some((c) => c.id === current.classId)
+    ? h("section", { class: "card now-card now-card--inline" },
+        h("div", {},
+          h("p", { class: "now-card__kicker" },
+            h("span", { class: "now-pill__dot", "aria-hidden": "true" }),
+            `Jetzt · ${current.label} · bis ${formatTime(current.to)}`),
+          h("h2", {}, current.name)),
+        h("button", { class: "btn btn--primary", type: "button", onclick: () => navigate(`/focus/${current.classId}`) },
+          "Fokus-Phase vorbereiten"))
+    : null;
 
   appEl.replaceChildren(
     pageHead({
@@ -2525,10 +3384,12 @@ async function renderFocusHome() {
           icon("wandern"), "Alle Wälder erkunden")
       ]
     }),
-    h("div", { class: "card" },
-      h("h2", {}, "Klassen-Ranking"),
-      h("p", { class: "muted small" }, "Klasse antippen, um ihren Wald zu sehen und eine Fokus-Phase zu starten."),
-      list)
+    h("div", { class: "stack" },
+      nowCard,
+      h("div", { class: "card" },
+        h("h2", {}, "Klassen-Ranking"),
+        h("p", { class: "muted small" }, "Klasse anklicken, um ihren Wald zu sehen und eine Fokus-Phase zu starten."),
+        list))
   );
 }
 
@@ -2536,7 +3397,7 @@ async function renderFocusHome() {
 
 async function renderForestWalk() {
   appEl.className = "app app--wide";
-  setChrome({ title: "Alle Wälder", back: "/focus" });
+  setChrome({ title: "Alle Wälder", back: "/focus", section: "wald" });
   appEl.replaceChildren(loadingView());
 
   let classes;
@@ -2591,7 +3452,7 @@ async function renderForestWalk() {
   for (const c of classes) for (const t of c.focus_trees ?? []) counts[speciesForGoal(t.goal_seconds)]++;
 
   infoEl.append(h("p", { class: "walk__hint" },
-    "Tippe einen Baum an, um seinen Steckbrief zu sehen."));
+    "Klicke einen Baum an, um seinen Steckbrief zu sehen."));
 
   appEl.replaceChildren(
     h("div", { class: "walk" },
@@ -2599,7 +3460,7 @@ async function renderForestWalk() {
         eyebrow: `${treesLabel(totalTrees)} in ${classes.length} ${classes.length === 1 ? "Wald" : "Wäldern"}`,
         title: "Alle Wälder",
         lead: "Jede Klasse hat ihren eigenen Wald. Die größten, am längsten erarbeiteten Bäume stehen hinten in der Mitte, " +
-          "die schnell gewachsenen vorne am Rand. Wische oder ziehe zur Seite, um durch die Wälder zu gehen."
+          "die schnell gewachsenen vorne am Rand. Ziehe die Landschaft zur Seite oder nutze die Pfeile, um durch die Wälder zu gehen."
       }),
       ranking.length
         ? h("div", { class: "walk__nav" },
@@ -2630,7 +3491,7 @@ async function renderForestWalk() {
 
 async function renderFocusRoom(classId) {
   appEl.className = "app";
-  setChrome({ title: "Fokus-Wald", back: "/focus" });
+  setChrome({ title: "Fokus-Wald", back: "/focus", section: "wald" });
   appEl.replaceChildren(loadingView());
 
   // Wird beim Verlassen der Ansicht gesetzt – z. B. waehrend der
@@ -2662,7 +3523,7 @@ async function renderFocusRoom(classId) {
 
   function showSetup() {
     appEl.className = "app";
-    setChrome({ title: probe ? "Fokus-Wald: Probelauf" : `Fokus-Wald: ${cls.name}`, back: "/focus" });
+    setChrome({ title: probe ? "Fokus-Wald: Probelauf" : `Fokus-Wald: ${cls.name}`, back: "/focus", section: "wald" });
 
     // Steckbrief zum gewaehlten Ziel: zum Vorlesen vor der Stillarbeit.
     const factEl = h("div", { class: "goal-fact", "aria-live": "polite" });
@@ -2774,6 +3635,7 @@ async function renderFocusRoom(classId) {
         title: cls.name,
         actions: [h("button", { class: "btn", onclick: () => navigate(`/focus/${FOCUS_WALK}`) }, icon("wandern"), "Alle Wälder")]
       }),
+      classTabs(cls.id, "wald"),
       h("div", { class: "stack" }, forestCard, startCard, rewardCard()));
   }
 
@@ -3277,7 +4139,7 @@ function pickLessonMode() {
       h("p", { class: "muted small" },
         "Kanban: Schüler per Drag & Drop durch drei Spalten bewegen. " +
         "Sortierte Ansicht: alle Namen alphabetisch in einem Raster, " +
-        "per Antippen weiterschalten."),
+        "per Klick weiterschalten."),
       h("div", { class: "stack" },
         h("button", { class: "btn btn--primary", type: "button", onclick: () => close("kanban") },
           "Kanban"),
@@ -3294,12 +4156,6 @@ function pickLessonMode() {
    ------------------------------------------------------------------- */
 
 if (sb) {
-  logoutBtn.addEventListener("click", async () => {
-    await sb.auth.signOut();
-    state.teacher = null;
-    navigate("/");
-  });
-
   window.addEventListener("hashchange", router);
 
   const { data: { session } } = await sb.auth.getSession();
@@ -3310,6 +4166,8 @@ if (sb) {
     state.session = nextSession;
     if (changedUser) {
       state.teacher = null;
+      state.openLessons.clear();
+      resetChrome();
       router();
     }
   });

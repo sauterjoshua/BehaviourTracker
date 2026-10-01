@@ -56,7 +56,7 @@ oder Datenschutzerklärung mit anpassen.
 | Verantwortliche | Schulen, an denen registrierte Lehrkräfte die App einsetzen (Schulen, die die AV-Vereinbarung unterzeichnet angefordert haben, hier eintragen) |
 | Kategorien der Verarbeitung | Speichern, Anzeigen, Auswerten und Löschen von Klassen-, Schüler-, Unterrichts- und Fokus-Wald-Daten |
 | Betroffene | Schülerinnen und Schüler; Lehrkräfte |
-| Daten | Namen/Kürzel, Klassenzugehörigkeit, Sitzplatz, Zustände mit Zeitstempeln, Zeiten, Unterrichtsdaten, Fokus-Wald-Ergebnisse, Belohnungstexte |
+| Daten | Namen/Kürzel, Klassenzugehörigkeit, Sitzplatz, Zustände mit Zeitstempeln, Zeiten, Unterrichtsdaten (inkl. automatischem Endzeitpunkt), Fokus-Wald-Ergebnisse, Belohnungstexte, Stundenplan der Lehrkraft (Stundenzeiten, Zuordnung Klasse–Wochentag–Stunde) |
 | Unterauftragsverarbeiter | Supabase Pte. Ltd., Singapur – Rechenzentrum in der EU, DPA mit SCC |
 | Drittland | siehe A2 |
 | Vertrag | § 5 der Nutzungsbedingungen (`nutzungsbedingungen.html`) |
