@@ -139,3 +139,8 @@ SQL-Editor ausgeführt werden.
 - Das interne Verzeichnis von Verarbeitungstätigkeiten (Art. 30 DSGVO)
   liegt in `docs/verarbeitungsverzeichnis.md`. Bei neuen Funktionen, die
   Daten speichern, diese Datei und `datenschutz.html` mitpflegen.
+
+
+Erweitertungen:
+
+Yt video geben -> Fragebogen/Quiz daraus erstellen
