@@ -41,7 +41,7 @@
         <a href="#funktionen">Funktionen</a>
         <a href="#so-gehts">So funktioniert’s</a>
       </nav>
-      <a class="btn btn--ghost site-header__login" href="app.html" data-app-link>Anmelden</a>
+      <a class="btn btn--ghost site-header__login" href="app.html">Anmelden</a>
     </div>
   </header>
 
@@ -54,7 +54,7 @@
           <h1 id="hero-title">Mach gutes Arbeiten im Unterricht sichtbar.</h1>
           <p class="lead">Das Live-Board für deine Klasse: Ein Tipp zeigt allen, wer gerade gut arbeitet – die Zeiten für eine faire Auswertung laufen automatisch mit.</p>
           <div class="hero__cta">
-            <a class="btn btn--primary btn--xl" href="app.html?registrieren" data-app-link>Kostenlos starten</a>
+            <a class="btn btn--primary btn--xl" href="app.html?registrieren">Kostenlos starten</a>
             <p class="hero__note">Ohne Installation – bereit für deine nächste Stunde.</p>
           </div>
         </div>
@@ -175,7 +175,7 @@
           <h2 id="steps-title">In drei Schritten startklar.</h2>
           <p class="section__lead">Keine Schulung, kein Handbuch. Wenn du eine Klassenliste hast, kannst du loslegen.</p>
         </div>
-        <ol class="steps" role="list">
+        <ol class="steps">
           <li class="step reveal">
             <span class="step__num" aria-hidden="true">1</span>
             <h3>Klasse anlegen</h3>
@@ -192,7 +192,7 @@
             <p>Nach der Stunde siehst du pro Person die Zeit in jeder Stufe, in Minuten und Prozent.</p>
           </li>
         </ol>
-        <ul class="trust reveal" aria-label="Datenschutz und Technik">
+        <ul class="trust reveal">
           <li><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Deine Klassen sieht nur dein Konto</li>
           <li><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16"/></svg>Das Mikrofon nimmt nichts auf</li>
           <li><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Keine App, keine Installation</li>
@@ -206,7 +206,7 @@
         <div class="cta__panel reveal">
           <h2 id="cta-title">Probier es in deiner nächsten Stunde aus.</h2>
           <p>Konto anlegen, Klasse eintragen, loslegen – das dauert nur wenige Minuten.</p>
-          <a class="btn btn--primary btn--xl" href="app.html?registrieren" data-app-link>Kostenlos starten</a>
+          <a class="btn btn--primary btn--xl" href="app.html?registrieren">Kostenlos starten</a>
         </div>
       </div>
     </section>
@@ -219,10 +219,10 @@
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="brand-mark__a" x="3" y="17" width="7" height="12" rx="2"/><rect class="brand-mark__b" x="12.5" y="10" width="7" height="19" rx="2"/><rect class="brand-mark__c" x="22" y="3" width="7" height="26" rx="2"/></svg>
         BehaviourTracker
       </a>
-      <nav aria-label="Fußzeile">
-        <a href="#funktionen">Funktionen</a>
-        <a href="#so-gehts">So funktioniert’s</a>
-        <a href="app.html">Anmelden</a>
+      <nav aria-label="Rechtliches">
+        <a href="./impressum.html">Impressum</a>
+        <a href="./datenschutz.html">Datenschutz</a>
+        <a href="./nutzungsbedingungen.html">Nutzungsbedingungen</a>
       </nav>
       <p class="site-footer__copy">© 2026 BehaviourTracker</p>
     </div>
@@ -245,22 +245,6 @@
         });
       }, { rootMargin: "0px 0px -10% 0px", threshold: 0.1 });
       items.forEach(function (el) { io.observe(el); });
-    })();
-
-    // Bereits angemeldet (Supabase-Session im localStorage)? Dann fuehren
-    // die Buttons direkt in die App statt zur Registrierung.
-    (function () {
-      var loggedIn = false;
-      try {
-        for (var i = 0; i < localStorage.length; i++) {
-          if (/^sb-.+-auth-token$/.test(localStorage.key(i))) { loggedIn = true; break; }
-        }
-      } catch (e) { /* Speicher gesperrt, z. B. privater Modus */ }
-      if (!loggedIn) return;
-      document.querySelectorAll("[data-app-link]").forEach(function (a) {
-        a.href = "app.html";
-        a.textContent = "Zur App";
-      });
     })();
   </script>
 </body>

@@ -13,5 +13,8 @@ export const CONFIG = {
   // Optional: hCaptcha-Sitekey. Leer lassen, wenn in Supabase
   // (Authentication -> Settings -> Bot and Abuse Protection) kein
   // Captcha aktiviert ist.
+  // Achtung Datenschutz: Mit Key laedt die Login-Seite Code von
+  // js.hcaptcha.com (Intuition Machines, USA). Dann vorher einen Abschnitt
+  // zu hCaptcha in datenschutz.html ergaenzen.
   HCAPTCHA_SITE_KEY: ""
 };

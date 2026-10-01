@@ -10,7 +10,8 @@
      Der eigentliche Zugriffsschutz kommt aus den RLS-Policies.
    =================================================================== */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+// Lokal gebuendelt statt von esm.sh geladen: kein Fremd-CDN, keine IP-Weitergabe.
+import { createClient } from "./vendor/supabase-js-2.45.4.mjs";
 
 const appEl = document.getElementById("app");
 const topbarEl = document.getElementById("topbar");
@@ -355,7 +356,19 @@ function runCleanup() {
 
 const captchaEnabled = () => Boolean(CONFIG && CONFIG.HCAPTCHA_SITE_KEY);
 
+// Fassung von nutzungsbedingungen.html ("Stand"); wird bei der Registrierung
+// mit Zeitpunkt in den user_metadata gespeichert. Bei Aenderungen anpassen.
+const TERMS_VERSION = "2026-10-01";
+
+/** Laedt hCaptcha erst, wenn es wirklich gebraucht wird (Key gesetzt und
+ * Login-Ansicht offen). Ohne Key wird js.hcaptcha.com nie kontaktiert.
+ * Wird es aktiviert, muss hCaptcha in datenschutz.html ergaenzt werden. */
 function waitForHcaptcha(timeoutMs = 8000) {
+  if (!document.querySelector("script[data-hcaptcha]")) {
+    document.head.append(h("script", {
+      src: "https://js.hcaptcha.com/1/api.js?render=explicit", async: true, "data-hcaptcha": true
+    }));
+  }
   return new Promise((resolve, reject) => {
     const started = Date.now();
     (function poll() {
@@ -419,6 +432,16 @@ function renderAuth() {
   });
   const nicknameField = h("label", { class: "field", hidden: true },
     h("span", { class: "field__label" }, "Anzeigename"), nicknameInput);
+  const termsInput = h("input", { type: "checkbox" });
+  const termsField = h("label", { class: "check", hidden: true },
+    termsInput,
+    h("span", {},
+      "Ich akzeptiere die ",
+      h("a", { href: "./nutzungsbedingungen.html", target: "_blank" }, "Nutzungsbedingungen"),
+      " (inkl. Auftragsverarbeitung) und gebe Schülerdaten nur mit Erlaubnis meiner Schule ein. " +
+      "Hinweise zum Datenschutz: ",
+      h("a", { href: "./datenschutz.html", target: "_blank" }, "Datenschutzerklärung"),
+      "."));
   const captchaBox = h("div", { class: "captcha" });
   const submitBtn = h("button", { class: "btn btn--primary", type: "submit" }, "Anmelden");
 
@@ -431,6 +454,7 @@ function renderAuth() {
     tabSignin.setAttribute("aria-pressed", String(!signup));
     tabSignup.setAttribute("aria-pressed", String(signup));
     nicknameField.hidden = !signup;
+    termsField.hidden = !signup;
     passwordInput.autocomplete = signup ? "new-password" : "current-password";
     submitBtn.textContent = signup ? "Konto erstellen" : "Anmelden";
     errorBox.hidden = true;
@@ -450,6 +474,7 @@ function renderAuth() {
     h("label", { class: "field" }, h("span", { class: "field__label" }, "E-Mail"), emailInput),
     h("label", { class: "field" }, h("span", { class: "field__label" }, "Passwort"), passwordInput),
     nicknameField,
+    termsField,
     captchaBox,
     submitBtn
   );
@@ -466,6 +491,9 @@ function renderAuth() {
     }
     if (password.length < 8) return fail("Das Passwort muss mindestens 8 Zeichen lang sein.");
     if (password.length > 72) return fail("Das Passwort darf hoechstens 72 Zeichen lang sein.");
+    if (mode === "signup" && !termsInput.checked) {
+      return fail("Bitte zuerst die Nutzungsbedingungen akzeptieren.");
+    }
 
     let captchaToken;
     if (captchaEnabled()) {
@@ -480,7 +508,8 @@ function renderAuth() {
         const nickname = cleanName(nicknameInput.value, 60) || email.split("@")[0];
         const { data, error } = await sb.auth.signUp({
           email, password,
-          options: { data: { nickname }, captchaToken }
+          // Zeitpunkt und Fassung der akzeptierten Nutzungsbedingungen als Nachweis
+          options: { data: { nickname, terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() }, captchaToken }
         });
         if (error) throw error;
         if (!data.session) {
@@ -641,6 +670,49 @@ const api = {
 
   async updateFocusReward(classId, fields) {
     return unwrap(await sb.from("classes").update(fields).eq("id", classId));
+  },
+
+  /** Alle Zeilen einer Tabelle, die RLS diesem Konto zeigt. PostgREST
+   * liefert hoechstens 1000 Zeilen pro Anfrage, daher seitenweise.
+   * null, wenn die Tabelle (Migration nicht ausgefuehrt) fehlt. */
+  async allRows(table) {
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from(table).select("*").order("id").range(from, from + 999);
+      if (error) {
+        if (isMissingFocusSchema(error)) return null;
+        throw error;
+      }
+      rows.push(...data);
+      if (data.length < 1000) return rows;
+    }
+  },
+
+  /** Datenexport (Art. 15/20 DSGVO): alles, was zu diesem Konto gespeichert ist. */
+  async exportAll() {
+    const user = state.session?.user;
+    const out = {
+      exportiert_am: new Date().toISOString(),
+      konto: {
+        email: user?.email ?? null,
+        registriert_am: user?.created_at ?? null,
+        nutzungsbedingungen: user?.user_metadata?.terms_version ?? null,
+        nutzungsbedingungen_akzeptiert_am: user?.user_metadata?.terms_accepted_at ?? null
+      },
+      tabellen: {}
+    };
+    for (const table of ["teachers", "classes", "students", "lessons",
+                         "lesson_students", "column_time_logs", "focus_trees"]) {
+      const rows = await api.allRows(table);
+      if (rows) out.tabellen[table] = rows;
+    }
+    return out;
+  },
+
+  /** Loescht den Auth-User; alle Daten haengen per ON DELETE CASCADE daran
+   * (siehe supabase/migrations/0006_delete_account.sql). */
+  async deleteOwnAccount() {
+    return unwrap(await sb.rpc("delete_own_account"));
   }
 };
 
@@ -732,8 +804,62 @@ function renderMenu() {
           h("p", {}, "Laufende und vergangene Unterrichte oeffnen oder einen neuen starten.")),
         h("button", { class: "menu__item", onclick: () => navigate("/focus") },
           h("h2", {}, "Fokus-Wald"),
-          h("p", {}, "Lautstaerke-Monitor fuer den Beamer: Ist die Klasse ruhig, waechst ein Baum im Klassenwald."))))
+          h("p", {}, "Lautstaerke-Monitor fuer den Beamer: Ist die Klasse ruhig, waechst ein Baum im Klassenwald."))),
+      accountCard())
   );
+}
+
+/** Konto & Daten: Export und Loeschung (Betroffenenrechte nach DSGVO). */
+function accountCard() {
+  const exportBtn = h("button", { class: "btn", type: "button" }, "Daten exportieren");
+  exportBtn.addEventListener("click", async () => {
+    exportBtn.disabled = true;
+    try {
+      const data = await api.exportAll();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = h("a", { href: url, download: `behaviourtracker-export-${new Date().toISOString().slice(0, 10)}.json` });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("Export heruntergeladen.");
+    } catch (error) {
+      showError(error, "Export fehlgeschlagen.");
+    } finally {
+      exportBtn.disabled = false;
+    }
+  });
+
+  const deleteBtn = h("button", { class: "btn btn--danger", type: "button" }, "Konto löschen");
+  deleteBtn.addEventListener("click", () => confirmDelete(
+    "Konto wirklich löschen? Alle Klassen, Schülernamen, Unterrichte, Zeiten und Bäume werden sofort " +
+    "und endgültig gelöscht. Tipp: Vorher „Daten exportieren“.",
+    async () => {
+      try {
+        await api.deleteOwnAccount();
+      } catch (error) {
+        // PGRST202: Funktion unbekannt, d. h. Migration 0006 fehlt noch
+        if (error?.code === "PGRST202" || error?.code === "42883") {
+          throw new Error("Die Kontolöschung ist auf dem Server noch nicht eingerichtet. " +
+            "Bitte per E-Mail an den Betreiber wenden (siehe Impressum).");
+        }
+        throw error;
+      }
+      // Der User existiert nicht mehr: nur die lokale Sitzung entfernen.
+      await sb.auth.signOut({ scope: "local" });
+      state.teacher = null;
+      navigate("/");
+      toast("Dein Konto und alle Daten wurden gelöscht.");
+    },
+    "Endgültig löschen"));
+
+  return h("section", { class: "card account" },
+    h("h2", {}, "Konto & Daten"),
+    h("p", { class: "muted small" },
+      `Angemeldet als ${state.session?.user?.email ?? ""}. Du kannst jederzeit alle deine Daten ` +
+      "herunterladen oder dein Konto samt aller Daten löschen."),
+    h("div", { class: "row" }, exportBtn, deleteBtn));
 }
 
 /* -------------------------------------------------------------------
@@ -812,7 +938,7 @@ async function renderClassDetail(classId) {
 
   const nameInput = h("input", {
     class: "input", type: "text", maxlength: "80",
-    placeholder: "Name der Schuelerin / des Schuelers"
+    placeholder: "Vorname oder Kürzel"
   });
   const addBtn = h("button", { class: "btn btn--primary", type: "submit" }, "Hinzufuegen");
 
@@ -853,7 +979,10 @@ async function renderClassDetail(classId) {
   appEl.replaceChildren(
     h("div", { class: "stack" },
       h("div", { class: "card" },
-        h("h2", {}, "Schuelerin / Schueler hinzufuegen"), form),
+        h("h2", {}, "Schuelerin / Schueler hinzufuegen"), form,
+        h("p", { class: "muted small", style: "margin:.6rem 0 0" },
+          "Vorname oder Kürzel reicht – je weniger Daten, desto besser. " +
+          "Bitte nur mit Erlaubnis deiner Schule eintragen.")),
       h("div", { class: "card" },
         h("h2", {}, "Klassenliste"),
         h("p", { class: "muted small" }, "Auf einen Namen tippen, um die Spaltenzeiten zu sehen."),

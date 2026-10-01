@@ -115,3 +115,27 @@ Das Mikrofon misst nur die Lautstärke direkt im Browser – es wird nichts
 aufgenommen, gespeichert oder übertragen. Gespeichert wird nur der fertige
 Baum. Einmalig muss dafür `supabase/migrations/0003_focus.sql` im Supabase
 SQL-Editor ausgeführt werden.
+
+---
+
+## Datenschutz & Rechtliches
+
+- **Impressum**, **Datenschutzerklärung** und **Nutzungsbedingungen**
+  (inkl. Vereinbarung zur Auftragsverarbeitung nach Art. 28 DSGVO für
+  Schulen) liegen als `impressum.html`, `datenschutz.html` und
+  `nutzungsbedingungen.html` im Repo und sind im Footer jeder Seite verlinkt.
+  Solange dort Platzhalter wie `{{NAME}}` stehen, brechen beide Deploys
+  (GitHub Actions und Netlify-`build.sh`) bewusst ab.
+- Bei der Registrierung müssen die Nutzungsbedingungen akzeptiert werden;
+  Fassung und Zeitpunkt landen in den `user_metadata` des Kontos.
+- Unter **Konto & Daten** im Menü lassen sich alle Daten als JSON
+  exportieren und das Konto samt aller Daten löschen. Für die Löschung muss
+  einmalig `supabase/migrations/0006_delete_account.sql` im Supabase
+  SQL-Editor ausgeführt werden.
+- Beim Seitenaufruf werden keine fremden Server kontaktiert: Schrift
+  (`fonts/`) und Supabase-Bibliothek (`vendor/`) liegen im Repo. hCaptcha
+  wird nur geladen, wenn `HCAPTCHA_SITE_KEY` gesetzt ist – dann vorher in
+  `datenschutz.html` ergänzen.
+- Das interne Verzeichnis von Verarbeitungstätigkeiten (Art. 30 DSGVO)
+  liegt in `docs/verarbeitungsverzeichnis.md`. Bei neuen Funktionen, die
+  Daten speichern, diese Datei und `datenschutz.html` mitpflegen.

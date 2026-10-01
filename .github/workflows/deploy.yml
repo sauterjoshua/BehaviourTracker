@@ -24,6 +24,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Rechtliche Seiten vollstaendig?
+        run: |
+          if grep -l '{{[A-Z_]*}}' ./*.html; then
+            echo "::error::Platzhalter ({{...}}) in Impressum/Datenschutz/Nutzungsbedingungen ausfuellen."
+            exit 1
+          fi
+
       - name: config.js aus Repository-Secrets erzeugen
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
