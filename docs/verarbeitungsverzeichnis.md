@@ -77,3 +77,4 @@ oder Datenschutzerklärung mit anpassen.
 - Löschfunktion und Datenexport für Nutzerinnen und Nutzer in der App
 - Datensparsamkeit: nur Zeiten in „gut“/„großartig“ werden gespeichert; Unterrichtsdaten werden zum Schuljahresende automatisch gelöscht
 - Klassenansicht: Live-Updates über eine verschlüsselte WebSocket-Verbindung zu Supabase, Row Level Security gilt auch dort
+- Ohne Anmeldung keine Verarbeitung beim Betreiber: Fokus-Wald nur im localStorage des Geräts, Probe-Unterricht nur im Arbeitsspeicher des Tabs, keine Verbindung zu Supabase

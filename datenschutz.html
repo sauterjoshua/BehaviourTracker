@@ -42,6 +42,7 @@
         <li>Das Mikrofon im Fokus-Wald nimmt nichts auf. Die Lautstärke wird nur in deinem Browser berechnet.</li>
         <li>Du kannst in der App jederzeit alle Daten exportieren und dein Konto mit allen Daten löschen.</li>
         <li>Unterrichte und ihre Zeiten werden am Ende jedes Schuljahres automatisch gelöscht.</li>
+        <li>Ohne Anmeldung bleibt alles in deinem Browser: Der Probe-Unterricht wird gar nicht gespeichert, der Fokus-Wald nur auf deinem Gerät.</li>
       </ul>
     </div>
 
@@ -79,7 +80,7 @@
     <p>Die Startseite, das Impressum, diese Datenschutzerklärung und die Nutzungsbedingungen setzen keine Cookies, speichern nichts in deinem Browser und laden keine Inhalte von anderen Servern.</p>
 
     <h2 id="konto">3. Benutzerkonto</h2>
-    <p>Für die Nutzung der App (<code>app.html</code>) brauchst du ein Konto. Konten werden derzeit nur persönlich vergeben. Dabei verarbeite ich:</p>
+    <p>Für Klassen, Unterrichte und Auswertung in der App (<code>app.html</code>) brauchst du ein Konto. Konten werden derzeit nur persönlich vergeben. Fokus-Wald und Probe-Unterricht gehen auch ohne Konto (siehe Abschnitt 6). Für ein Konto verarbeite ich:</p>
     <ul>
       <li>E-Mail-Adresse,</li>
       <li>Passwort – es wird nur als nicht umkehrbarer Hash gespeichert, niemand kann es im Klartext lesen,</li>
@@ -120,8 +121,10 @@
     <p>Die App speichert im lokalen Speicher deines Browsers (localStorage):</p>
     <ul>
       <li>deine Anmeldesitzung, damit du angemeldet bleibst – sie wird beim Abmelden entfernt,</li>
-      <li>im Fokus-Wald das zuletzt gewählte Zeitziel und die Empfindlichkeit des Lautstärke-Monitors.</li>
+      <li>im Fokus-Wald das zuletzt gewählte Zeitziel und die Empfindlichkeit des Lautstärke-Monitors,</li>
+      <li>wenn du den Fokus-Wald ohne Anmeldung nutzt: die Klassennamen, die du anlegst, die gepflanzten Bäume (Zielzeit und Zeitpunkt) und die Belohnung. Diese Daten bleiben auf deinem Gerät, ich erhalte sie nicht. Du löschst sie, indem du die Klasse im Fokus-Wald löschst oder die Websitedaten im Browser entfernst.</li>
     </ul>
+    <p>Der <strong>Probe-Unterricht ohne Anmeldung</strong> mit den Vornamen, die du eintippst, liegt nur im Arbeitsspeicher des geöffneten Tabs. Er wird weder im Browser gespeichert noch übertragen und ist nach dem Neuladen oder Schließen der Seite weg. Ohne Anmeldung stellt die App keine Verbindung zu Supabase her.</p>
     <p>Hast du eingestellt, dass ein Unterricht beim Schließen der Seite endet, merkt sich die App im Sitzungsspeicher des Tabs (sessionStorage) kurz, welche Unterrichte dabei beendet wurden. So läuft ein Unterricht nach bloßem Neuladen weiter. Der Eintrag wird beim nächsten Laden gelöscht und verschwindet mit dem Schließen des Tabs.</p>
     <p>Das ist für die von dir gewünschten Funktionen unbedingt erforderlich (§ 25 Abs. 2 Nr. 2 TDDDG). Eine Einwilligung ist dafür nicht nötig. Die Fokus-Wald-Einstellungen verlassen dein Gerät nicht. BehaviourTracker setzt keine Cookies.</p>
 

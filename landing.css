@@ -103,43 +103,6 @@ p { margin: 0; }
 }
 .section__lead { color: var(--text-muted); font-size: 1.125rem; max-width: 60ch; margin: 0 auto; text-wrap: balance; }
 
-/* ---------------- Private Startseite ---------------- */
-/* Solange das Projekt privat ist, zeigt index.html nur diese Karte.
-   Die Abschnitte "1. Hero" bis "6. Finaler CTA" darunter gehoeren zur
-   oeffentlichen Startseite (Git-Tag startseite-oeffentlich) und sind bis
-   dahin ungenutzt. */
-
-.private {
-  display: grid;
-  place-items: center;
-  min-height: calc(100vh - 120px);
-  min-height: calc(100dvh - 120px);
-  padding: 48px var(--gutter);
-}
-.private__card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  max-width: 28rem;
-  text-align: center;
-}
-.private__mark { width: 48px; height: 48px; }
-.private__card h1 { font-size: 2rem; font-weight: 700; letter-spacing: -.02em; margin: 0; }
-.private__tag {
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-muted);
-  font-size: .875rem;
-  font-weight: 500;
-}
-.private__text { color: var(--text-muted); max-width: 34ch; margin-bottom: 8px; }
-.site-footer__inner.private__footer { justify-content: center; align-items: center; }
-.private__footer nav { justify-content: center; }
-
 /* ---------------- 1. Hero ---------------- */
 
 .hero {
@@ -421,6 +384,7 @@ p { margin: 0; }
 }
 .cta__panel p { max-width: 48ch; margin: 0 auto 32px; color: #a1a1aa; font-size: 1.125rem; }
 .cta__panel .btn:focus-visible { outline-color: #fafafa; }
+.cta__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 
 /* ---------------- 7. Footer ---------------- */
 

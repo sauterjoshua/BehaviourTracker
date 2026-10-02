@@ -18,6 +18,7 @@ const topbarEl = document.getElementById("topbar");
 const topnavEl = document.getElementById("topnav");
 const topbarActionsEl = document.getElementById("topbarActions");
 const backBtn = document.getElementById("backBtn");
+const brandLinkEl = document.querySelector(".topbar__brand");
 const toastEl = document.getElementById("toast");
 
 // Schutz vor Clickjacking: GitHub Pages kann keinen X-Frame-Options-Header
@@ -447,6 +448,8 @@ function unwrap({ data, error }) {
 const state = {
   session: null,
   teacher: null,
+  // Ohne Anmeldung: Fokus-Wald und Probe-Unterricht nur im Browser (siehe guestApi).
+  guest: false,
   // Migration 0007 (Stundenplan, automatisches Unterrichtsende) ausgefuehrt?
   scheduleAvailable: false,
   classIndex: new Map(),   // id -> Name aller eigenen Klassen (fuer Stundenplan und Menues)
@@ -684,12 +687,22 @@ function renderAuth() {
     }
   });
 
+  // Solange keine Registrierung moeglich ist: Hinweis, und was ohne Konto geht.
+  const privateNote = SIGNUP_OPEN ? null : h("section", { class: "card auth__note" },
+    h("p", { class: "auth__note-tag" }, "Privates Projekt"),
+    h("p", {}, "Anmelden können nur eingeladene Personen. Eine Registrierung ist nicht möglich."),
+    h("p", { class: "muted small" }, "Ohne Anmeldung kannst du den Fokus-Wald nutzen und einen Probe-Unterricht ausprobieren."),
+    h("div", { class: "row" },
+      h("a", { class: "btn", href: "#/focus" }, "Fokus-Wald"),
+      h("a", { class: "btn", href: "#/ausprobieren" }, "Unterricht ausprobieren")));
+
   appEl.replaceChildren(
     h("div", { class: "auth" },
       h("div", { class: "auth__brand" },
         brandMark(),
         h("h1", {}, "BehaviourTracker"),
         h("p", { class: "muted" }, "Gutes Arbeiten im Unterricht sichtbar machen.")),
+      privateNote,
       form,
       h("a", { class: "auth__home", href: "./" }, "\u2190 Zur Startseite"))
   );
@@ -705,7 +718,7 @@ function renderAuth() {
    Datenzugriff
    ------------------------------------------------------------------- */
 
-const api = {
+const remoteApi = {
   async listClasses() {
     return unwrap(await sb.from("classes").select("id, name, students(count)").order("name"));
   },
@@ -920,6 +933,210 @@ const api = {
   }
 };
 
+/* -------------------------------------------------------------------
+   Ohne Anmeldung (Gastmodus)
+   -------------------------------------------------------------------
+   Ohne Konto laufen Fokus-Wald und ein Probe-Unterricht ganz im
+   Browser; an Supabase geht nichts. Der Fokus-Wald (nur Klassennamen,
+   Baeume, Belohnung) liegt im localStorage. Der Probe-Unterricht mit den
+   eingetippten Namen liegt nur im Arbeitsspeicher und ist nach dem
+   Neuladen oder Schliessen weg. Im Gastmodus leitet `api` alle Aufrufe
+   an guestApi um; was es dort nicht gibt, braucht ein Konto.
+   ------------------------------------------------------------------- */
+
+const GUEST_FOREST_KEY = "bt.gast.wald";
+const GUEST_ID_PREFIX = "gast-";
+const GUEST_MAX_CLASSES = 30;
+const GUEST_MAX_TREES = 2000;
+const GUEST_MAX_STUDENTS = 40;
+const GUEST_CLASS_NAME_MAX = 40;
+
+const isGuestId = (id) => typeof id === "string" && id.startsWith(GUEST_ID_PREFIX);
+const guestId = () => GUEST_ID_PREFIX +
+  (crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+const clampInt = (value, min, max, fallback) => {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+};
+
+/** Probe-Unterrichte dieses Tabs: id -> { lesson, rows, logs }. */
+const guestLessons = new Map();
+
+/** Fokus-Wald aus dem localStorage; unbrauchbare Eintraege fallen weg. */
+function readGuestForest() {
+  const raw = readPref(GUEST_FOREST_KEY, null);
+  const classes = Array.isArray(raw?.classes) ? raw.classes : [];
+  return classes.slice(0, GUEST_MAX_CLASSES).flatMap((c) => {
+    const name = cleanName(String(c?.name ?? ""), GUEST_CLASS_NAME_MAX);
+    if (!name || !isGuestId(c?.id)) return [];
+    const reward = cleanName(String(c.focus_reward ?? ""), 120);
+    const trees = (Array.isArray(c.focus_trees) ? c.focus_trees : [])
+      .filter((t) => isGuestId(t?.id) && !Number.isNaN(Date.parse(t?.created_at)))
+      .slice(-GUEST_MAX_TREES)
+      .map((t) => ({ id: t.id, goal_seconds: clampInt(t.goal_seconds, 60, 7200, 60), created_at: t.created_at }));
+    return [{
+      id: c.id,
+      name,
+      focus_reward: reward || null,
+      focus_reward_goal: reward ? clampInt(c.focus_reward_goal, 1, 500, 10) : null,
+      focus_reward_offset: clampInt(c.focus_reward_offset, 0, GUEST_MAX_TREES, 0),
+      focus_trees: trees
+    }];
+  });
+}
+
+let guestStorageWarned = false;
+function writeGuestForest(classes) {
+  try {
+    localStorage.setItem(GUEST_FOREST_KEY, JSON.stringify({ classes }));
+  } catch {
+    if (!guestStorageWarned) {
+      guestStorageWarned = true;
+      toast("Dieser Browser lässt kein Speichern zu. Der Wald bleibt nur, bis du die Seite schließt.", "error");
+    }
+  }
+}
+
+function updateGuestClass(classId, change) {
+  const classes = readGuestForest();
+  const cls = classes.find((c) => c.id === classId);
+  if (!cls) throw new Error("Klasse nicht gefunden.");
+  const result = change(cls);
+  writeGuestForest(classes);
+  return result;
+}
+
+function addGuestClass(name) {
+  const classes = readGuestForest();
+  if (classes.length >= GUEST_MAX_CLASSES) throw new Error(`Höchstens ${GUEST_MAX_CLASSES} Klassen.`);
+  if (classes.some((c) => c.name.toLocaleLowerCase("de") === name.toLocaleLowerCase("de"))) {
+    throw new Error(`Die Klasse „${name}“ gibt es schon.`);
+  }
+  classes.push({ id: guestId(), name, focus_reward: null, focus_reward_goal: null, focus_reward_offset: 0, focus_trees: [] });
+  writeGuestForest(classes);
+}
+
+function deleteGuestClass(classId) {
+  writeGuestForest(readGuestForest().filter((c) => c.id !== classId));
+}
+
+/** Probe-Unterricht anlegen; names sind bereits bereinigt und eindeutig. */
+function startGuestLesson(className, names, mode) {
+  const id = guestId();
+  const now = new Date().toISOString();
+  guestLessons.set(id, {
+    lesson: {
+      id, name: `${className} (Probe)`, date: now.slice(0, 10), ended_at: null, created_at: now,
+      class_id: null, mode, classes: { name: className }
+    },
+    rows: names.map((name, i) => ({
+      id: guestId(), col: "links", position: i + 1, student_id: guestId(), students: { name }
+    })),
+    // Wie column_time_logs: nur positive Zustaende.
+    logs: []
+  });
+  return id;
+}
+
+function guestLesson(lessonId) {
+  const entry = guestLessons.get(lessonId);
+  if (!entry) throw new Error("Der Probe-Unterricht ist nicht mehr da. Er wird nicht gespeichert.");
+  return entry;
+}
+
+const closeGuestLogs = (entry, studentId = null) => {
+  const now = Date.now();
+  for (const log of entry.logs) {
+    if (log.ended_at === null && (studentId === null || log.student_id === studentId)) log.ended_at = now;
+  }
+};
+
+/** Zeiten je Person im Probe-Unterricht (nur "gut" und "großartig"). */
+function guestLessonTimes(lessonId) {
+  const entry = guestLesson(lessonId);
+  const now = Date.now();
+  return byStudentName(entry.rows).map((row) => {
+    const times = { name: row.students.name, mitte: 0, rechts: 0 };
+    for (const log of entry.logs) {
+      if (log.student_id === row.student_id) times[log.col] += ((log.ended_at ?? now) - log.started_at) / 1000;
+    }
+    return times;
+  });
+}
+
+const copy = (value) => JSON.parse(JSON.stringify(value));
+
+const guestApi = {
+  async listFocusClasses() {
+    return readGuestForest().sort((a, b) => a.name.localeCompare(b.name, "de"));
+  },
+
+  async plantTree(classId, goalSeconds) {
+    const tree = { id: guestId(), goal_seconds: clampInt(goalSeconds, 60, 7200, 60), created_at: new Date().toISOString() };
+    updateGuestClass(classId, (cls) => {
+      cls.focus_trees.push(tree);
+      cls.focus_trees = cls.focus_trees.slice(-GUEST_MAX_TREES);
+    });
+    return { ...tree };
+  },
+
+  async updateFocusReward(classId, fields) {
+    updateGuestClass(classId, (cls) => {
+      for (const key of ["focus_reward", "focus_reward_goal", "focus_reward_offset"]) {
+        if (key in fields) cls[key] = fields[key];
+      }
+    });
+  },
+
+  async getLesson(lessonId) {
+    const entry = guestLessons.get(lessonId);
+    return entry ? copy(entry.lesson) : null;
+  },
+
+  async boardRows(lessonId) {
+    return copy([...guestLesson(lessonId).rows].sort((a, b) => a.position - b.position));
+  },
+
+  async moveStudent(lessonId, studentId, column) {
+    const entry = guestLesson(lessonId);
+    const row = entry.rows.find((r) => r.student_id === studentId);
+    if (!row) throw new Error("Diese Person gehört nicht zu diesem Unterricht.");
+    if (row.col === column) return;
+    if (!isAdjacent(row.col, column)) throw new Error("Nur ein Schritt in die direkt benachbarte Spalte erlaubt.");
+    closeGuestLogs(entry, studentId);
+    if (column !== "links") entry.logs.push({ student_id: studentId, col: column, started_at: Date.now(), ended_at: null });
+    row.position = Math.max(0, ...entry.rows.filter((r) => r.col === column).map((r) => r.position)) + 1;
+    row.col = column;
+  },
+
+  async endLesson(lessonId) {
+    const entry = guestLesson(lessonId);
+    closeGuestLogs(entry);
+    entry.lesson.ended_at ??= new Date().toISOString();
+  },
+
+  async reopenLesson(lessonId) {
+    const entry = guestLesson(lessonId);
+    const now = Date.now();
+    for (const row of entry.rows) {
+      if (row.col !== "links") entry.logs.push({ student_id: row.student_id, col: row.col, started_at: now, ended_at: null });
+    }
+    entry.lesson.ended_at = null;
+  },
+
+  async setAutoEnd() { return null; },
+  async closeDueLessons() { return 0; }
+};
+
+// Im Gastmodus nur guestApi; alles andere braucht ein Konto und darf
+// Supabase gar nicht erst erreichen.
+const api = new Proxy(remoteApi, {
+  get(target, key) {
+    if (!state.guest) return target[key];
+    return guestApi[key] ?? (async () => { throw new Error("Dafür brauchst du ein Konto."); });
+  }
+});
+
 const lessonExtra = () => (state.scheduleAvailable ? ", auto_end_at" : "");
 
 /* -------------------------------------------------------------------
@@ -1106,6 +1323,10 @@ const NAV = [
   { key: "unterricht", label: "Unterrichte", hash: "/lessons" },
   { key: "wald", label: "Fokus-Wald", hash: "/focus" }
 ];
+const GUEST_NAV = [
+  { key: "wald", label: "Fokus-Wald", hash: "/focus" },
+  { key: "ausprobieren", label: "Unterricht ausprobieren", hash: "/ausprobieren" }
+];
 
 /**
  * Aufklappmenue. items() wird bei jedem Oeffnen neu gebaut, damit z. B.
@@ -1162,15 +1383,42 @@ function dropdown({ button, items, align = "end", className = "" }) {
 }
 
 let chromeBuilt = false;
+let chromeGuest = false;
 let nowPillEl = null;
 
-/** Baut Navigation und Menues einmal nach der Anmeldung auf. */
+function navLinks(nav) {
+  return nav.map((item) =>
+    h("a", { class: "topnav__link", href: `#${item.hash}`, dataset: { key: item.key } }, item.label));
+}
+
+/** Unter 860px passt die Navigation nicht mehr nebeneinander: Menue-Knopf. */
+function compactNav(nav) {
+  const menuBtn = h("button", { class: "btn btn--ghost topbar__menu", type: "button", "aria-label": "Navigation" },
+    h("span", { class: "burger", "aria-hidden": "true" }));
+  return dropdown({
+    button: menuBtn,
+    align: "start",
+    className: "topbar__compact-nav",
+    items: () => nav.map((item) => ({ label: item.label, onSelect: () => navigate(item.hash) }))
+  });
+}
+
+/** Baut Navigation und Menues einmal auf: fuer Gaeste nur Fokus-Wald,
+ * Probe-Unterricht und Anmelden, sonst die volle Navigation. */
 function buildChrome() {
   if (chromeBuilt) return;
   chromeBuilt = true;
+  chromeGuest = state.guest;
+  brandLinkEl.href = state.guest ? "./" : "#/";
 
-  topnavEl.replaceChildren(...NAV.map((item) =>
-    h("a", { class: "topnav__link", href: `#${item.hash}`, dataset: { key: item.key } }, item.label)));
+  if (state.guest) {
+    topnavEl.replaceChildren(...navLinks(GUEST_NAV));
+    topbarActionsEl.replaceChildren(h("a", { class: "btn btn--ghost", href: "#/anmelden" }, "Anmelden"));
+    topnavEl.before(compactNav(GUEST_NAV));
+    return;
+  }
+
+  topnavEl.replaceChildren(...navLinks(NAV));
 
   nowPillEl = h("a", { class: "now-pill", hidden: true });
 
@@ -1212,18 +1460,8 @@ function buildChrome() {
     ]
   });
 
-  // Unter 860px passt die Navigation nicht mehr nebeneinander: Menue-Knopf.
-  const menuBtn = h("button", { class: "btn btn--ghost topbar__menu", type: "button", "aria-label": "Navigation" },
-    h("span", { class: "burger", "aria-hidden": "true" }));
-  const compactNav = dropdown({
-    button: menuBtn,
-    align: "start",
-    className: "topbar__compact-nav",
-    items: () => NAV.map((item) => ({ label: item.label, onSelect: () => navigate(item.hash) }))
-  });
-
   topbarActionsEl.replaceChildren(nowPillEl, quickStart, account);
-  topnavEl.before(compactNav);
+  topnavEl.before(compactNav(NAV));
   updateNowPill();
   const timer = setInterval(updateNowPill, 30000);
   window.addEventListener("pagehide", () => clearInterval(timer), { once: true });
@@ -1289,6 +1527,7 @@ function parseRoute() {
  */
 function setChrome({ title, back = null, section = null, minimal = false }) {
   topbarEl.hidden = false;
+  if (chromeBuilt && chromeGuest !== state.guest) resetChrome();
   buildChrome();
   document.title = title && title !== "BehaviourTracker" ? `${title} – BehaviourTracker` : "BehaviourTracker";
   topbarEl.classList.toggle("topbar--wide", appEl.classList.contains("app--wide"));
@@ -1332,12 +1571,42 @@ const ROUTES = [
   { match: (p) => p[0] === "focus" && p.length === 2, view: (p) => renderFocusRoom(p[1]) }
 ];
 
+/** Ohne Anmeldung erreichbar; alles andere fuehrt zur Anmeldung. */
+const GUEST_ROUTES = [
+  { match: (p) => p[0] === "ausprobieren" && p.length === 1, view: () => renderGuestTrial() },
+  { match: (p) => p[0] === "lessons" && p.length === 2 && isGuestId(p[1]), view: (p) => renderBoard(p[1]) },
+  { match: (p) => p[0] === "focus" && p.length === 1, view: () => renderFocusHome() },
+  { match: (p) => p[0] === "focus" && p[1] === FOCUS_WALK && p.length === 2, view: () => renderForestWalk() },
+  { match: (p) => p[0] === "focus" && p.length === 2, view: (p) => renderFocusRoom(p[1]) }
+];
+
+async function runRoute(route, parts) {
+  try {
+    await route.view(parts);
+  } catch (error) {
+    showError(error);
+    appEl.replaceChildren(
+      h("div", { class: "card" },
+        h("p", {}, "Diese Ansicht konnte nicht geladen werden."),
+        h("button", { class: "btn", onclick: () => router() }, "Erneut versuchen"))
+    );
+  }
+}
+
 async function router() {
   if (!sb) return;
   runCleanup();
   closeOpenDropdown?.();
 
-  if (!state.session) { renderAuth(); return; }
+  if (!state.session) {
+    const parts = parseRoute();
+    const route = GUEST_ROUTES.find((r) => r.match(parts));
+    state.guest = Boolean(route);
+    if (route) await runRoute(route, parts);
+    else renderAuth();
+    return;
+  }
+  state.guest = false;
   if (!state.teacher) {
     appEl.replaceChildren(loadingView());
     try {
@@ -1361,17 +1630,7 @@ async function router() {
   const parts = parseRoute();
   const route = ROUTES.find((r) => r.match(parts));
   if (!route) return navigate("/");
-
-  try {
-    await route.view(parts);
-  } catch (error) {
-    showError(error);
-    appEl.replaceChildren(
-      h("div", { class: "card" },
-        h("p", {}, "Diese Ansicht konnte nicht geladen werden."),
-        h("button", { class: "btn", onclick: () => router() }, "Erneut versuchen"))
-    );
-  }
+  await runRoute(route, parts);
 }
 
 /* -------------------------------------------------------------------
@@ -2664,13 +2923,27 @@ async function renderBoard(lessonId) {
   // Board wird nach Beenden/Fortsetzen auch direkt neu aufgebaut – dabei
   // muss der Timer der vorherigen Instanz gestoppt werden.
   runCleanup();
+  const listHash = state.guest ? "/ausprobieren" : "/lessons";
   appEl.className = "app app--wide";
-  setChrome({ title: "Unterricht", back: "/lessons", minimal: true });
+  setChrome({ title: "Unterricht", back: listHash, minimal: true });
   appEl.replaceChildren(loadingView());
 
   const lesson = await api.getLesson(lessonId);
-  if (!lesson) { toast("Unterricht nicht gefunden.", "error"); return navigate("/lessons"); }
-  setChrome({ title: lesson.name, back: "/lessons", minimal: true });
+  if (!lesson) {
+    toast(state.guest
+      ? "Der Probe-Unterricht ist nicht mehr da – ohne Anmeldung wird nichts gespeichert."
+      : "Unterricht nicht gefunden.", "error");
+    return navigate(listHash);
+  }
+  setChrome({ title: lesson.name, back: listHash, minimal: true });
+
+  // Probe-Unterricht liegt nur im Arbeitsspeicher: vor dem Neuladen oder
+  // Schliessen nachfragen, solange er laeuft.
+  if (state.guest && !lesson.ended_at) {
+    const warn = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    registerCleanup(() => window.removeEventListener("beforeunload", warn));
+  }
 
   // Offener Unterricht in diesem Tab: wird ggf. beim Schliessen beendet und
   // zum eingestellten Zeitpunkt automatisch abgeschlossen.
@@ -2696,7 +2969,8 @@ async function renderBoard(lessonId) {
   const statsEl = h("div", { class: "board-stats" });
   let busy = false;
 
-  appEl.replaceChildren(h("div", { class: "stack" }, headerEl, boardEl));
+  appEl.replaceChildren(h("div", { class: "stack" },
+    headerEl, state.guest && lesson.ended_at ? guestSummaryCard(lessonId) : null, boardEl));
 
   const layout = () => (sorted ? layoutStudentGrid(boardEl) : layoutBoard(boardEl));
 
@@ -2879,7 +3153,9 @@ async function renderBoard(lessonId) {
       h("strong", {}, lesson.classes?.name ?? "Klasse"),
       h("span", { class: "list__sub" }, boardStatus()));
 
-    const classView = dropdown({
+    // Die Klassenansicht laeuft in einem eigenen Fenster und braucht dafuer
+    // die Datenbank; der Probe-Unterricht existiert nur in diesem Tab.
+    const classView = state.guest ? null : dropdown({
       button: h("button", { class: "btn btn--ghost", type: "button" },
         "Klassenansicht", h("span", { class: "caret", "aria-hidden": "true" })),
       items: () => [
@@ -3063,6 +3339,159 @@ async function renderClassView(lessonId, requestedMode) {
   appEl.replaceChildren(h("div", { class: "stack" }, headerEl, bodyEl));
   onFullscreen();
   draw();
+}
+
+/* -------------------------------------------------------------------
+   Ansichten ohne Anmeldung
+   ------------------------------------------------------------------- */
+
+const GUEST_SAMPLE_NAMES = ["Amira", "Ben", "Clara", "Deniz", "Emil", "Finn",
+  "Greta", "Hannah", "Ilyas", "Jonas", "Lea", "Mats"];
+
+/** Namen aus Zeilen, Kommas oder Semikolons; bereinigt, ohne Doppelte. */
+function parseNameList(text) {
+  const seen = new Set();
+  const names = [];
+  for (const part of String(text).split(/[\n,;]+/)) {
+    const name = cleanName(part, 80);
+    const key = name.toLocaleLowerCase("de");
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+function guestAccountHint() {
+  return h("section", { class: "card hint-card" },
+    h("div", {},
+      h("h2", {}, "Mit Konto"),
+      h("p", { class: "muted" },
+        "Klassen und Namen bleiben gespeichert, die Auswertung sammelt die Zeiten über das ganze Schuljahr, " +
+        "dazu kommen Sitzplan, Stundenplan und die Klassenansicht für den Beamer. " +
+        "Konten werden derzeit nur persönlich vergeben.")),
+    h("a", { class: "btn", href: "#/anmelden" }, "Anmelden"));
+}
+
+/** Zeiten nach einem beendeten Probe-Unterricht. */
+function guestSummaryCard(lessonId) {
+  const times = guestLessonTimes(lessonId);
+  return h("section", { class: "card" },
+    h("h2", {}, "Zeiten in diesem Probe-Unterricht"),
+    h("p", { class: "muted small" },
+      "Nur hier zu sehen und nicht gespeichert. Mit Konto sammelt die Auswertung diese Zeiten über alle Unterrichte."),
+    h("div", { class: "table-scroll" },
+      h("table", { class: "table" },
+        h("thead", {}, h("tr", {},
+          h("th", {}, "Name"),
+          POSITIVE_COLUMNS.map((c) => h("th", { class: "num" }, c.title)))),
+        h("tbody", {}, times.map((t) => h("tr", {},
+          h("td", {}, t.name),
+          POSITIVE_COLUMNS.map((c) => h("td", { class: "num" }, formatDurationLong(t[c.key])))))))));
+}
+
+function renderGuestTrial() {
+  appEl.className = "app";
+  setChrome({ title: "Unterricht ausprobieren", section: "ausprobieren" });
+
+  const classInput = h("input", {
+    class: "input", type: "text", maxlength: String(GUEST_CLASS_NAME_MAX), placeholder: "z. B. 7b"
+  });
+  const namesInput = h("textarea", { class: "input", rows: "8", placeholder: "Ein Vorname pro Zeile" });
+  const errorBox = h("div", { class: "error-box", hidden: true });
+  const fail = (message) => { errorBox.textContent = message; errorBox.hidden = false; };
+
+  const sampleBtn = h("button", { class: "btn btn--ghost", type: "button" }, "Beispielnamen einsetzen");
+  sampleBtn.addEventListener("click", () => {
+    namesInput.value = GUEST_SAMPLE_NAMES.join("\n");
+    if (!classInput.value.trim()) classInput.value = "7b";
+  });
+
+  const form = h("form", { class: "card" },
+    h("h2", {}, "Probe-Unterricht starten"),
+    errorBox,
+    h("label", { class: "field" }, h("span", { class: "field__label" }, "Klasse (freiwillig)"), classInput),
+    h("label", { class: "field" }, h("span", { class: "field__label" }, "Vornamen"), namesInput),
+    h("p", { class: "muted small" }, "Ein Name pro Zeile oder durch Komma getrennt. Vornamen genügen."),
+    h("div", { class: "row" },
+      h("button", { class: "btn btn--primary", type: "submit" }, "Unterricht starten"),
+      sampleBtn));
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    errorBox.hidden = true;
+    const names = parseNameList(namesInput.value);
+    if (!names.length) return fail("Bitte mindestens einen Namen eintragen.");
+    if (names.length > GUEST_MAX_STUDENTS) return fail(`Bitte höchstens ${GUEST_MAX_STUDENTS} Namen eintragen.`);
+    const mode = await pickLessonMode();
+    if (!mode) return;
+    const className = cleanName(classInput.value, GUEST_CLASS_NAME_MAX) || "Probeklasse";
+    navigate(`/lessons/${startGuestLesson(className, names, mode)}`);
+  });
+
+  // Probe-Unterrichte bleiben, solange der Tab offen ist.
+  const lessons = [...guestLessons.values()].map((entry) => entry.lesson).reverse();
+  const openCard = lessons.length
+    ? h("section", { class: "card" },
+        h("h2", {}, "In diesem Tab"),
+        h("ul", { class: "list" }, lessons.map((lesson) =>
+          h("li", { class: "list__item" },
+            h("button", { class: "list__main", type: "button", onclick: () => navigate(`/lessons/${lesson.id}`) },
+              lesson.name,
+              h("span", { class: "list__sub" }, `seit ${formatTime(new Date(lesson.created_at))}`)),
+            h("span", { class: `badge${lesson.ended_at ? "" : " badge--live"}` }, lesson.ended_at ? "beendet" : "läuft")))))
+    : null;
+
+  appEl.replaceChildren(
+    pageHead({
+      eyebrow: "Ohne Anmeldung",
+      title: "Unterricht ausprobieren",
+      lead: "Trag ein paar Vornamen ein und probier das Board aus. Es wird nichts gespeichert: " +
+        "Beim Neuladen oder Schließen der Seite ist der Probe-Unterricht weg."
+    }),
+    h("div", { class: "stack" }, openCard, form, guestAccountHint()));
+}
+
+/** Fokus-Wald ohne Konto: Klassen anlegen und loeschen (nur im Browser). */
+function guestClassesCard(classes) {
+  const input = h("input", {
+    class: "input", type: "text", maxlength: String(GUEST_CLASS_NAME_MAX), placeholder: "Klassenname, z. B. 7b"
+  });
+  const form = h("form", { class: "row row--form" },
+    input, h("button", { class: "btn btn--primary", type: "submit" }, "Anlegen"));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = cleanName(input.value, GUEST_CLASS_NAME_MAX);
+    if (!name) return toast("Bitte einen Klassennamen eingeben.", "error");
+    try {
+      addGuestClass(name);
+    } catch (error) {
+      return showError(error);
+    }
+    await router();
+    toast(`Klasse „${name}“ angelegt.`);
+  });
+
+  const list = classes.length
+    ? h("ul", { class: "list" }, classes.map((cls) =>
+        h("li", { class: "list__item" },
+          h("button", { class: "list__main", type: "button", onclick: () => navigate(`/focus/${cls.id}`) },
+            cls.name, h("span", { class: "list__sub" }, treesLabel(cls.focus_trees.length))),
+          h("button", {
+            class: "btn btn--sm btn--danger", type: "button",
+            onclick: () => confirmDelete(
+              `Klasse „${cls.name}“ mit ihrem Wald aus diesem Browser löschen?`,
+              async () => { deleteGuestClass(cls.id); await router(); toast("Klasse gelöscht."); })
+          }, "Löschen"))))
+    : null;
+
+  return h("section", { class: "card" },
+    h("h2", {}, "Klassen in diesem Browser"),
+    h("p", { class: "muted small" },
+      "Ohne Anmeldung liegen Klassennamen, Bäume und Belohnung nur in diesem Browser. Auf einem anderen Gerät " +
+      "oder nach dem Löschen der Browserdaten ist der Wald nicht da. Schülernamen braucht der Fokus-Wald nicht."),
+    form,
+    list);
 }
 
 /* -------------------------------------------------------------------
@@ -3729,7 +4158,9 @@ async function renderFocusHome() {
             h("span", { class: "list__sub" },
               `${treesLabel(entry.count)} · ${entry.minutes} Fokus-Minuten`)),
           nowBadge(entry.cls.id))))
-    : emptyView("Noch keine Klassen. Lege zuerst unter „Klassen“ eine an.");
+    : emptyView(state.guest
+        ? "Noch keine Klasse. Lege unten eine an."
+        : "Noch keine Klassen. Lege zuerst unter „Klassen“ eine an.");
 
   // Klasse der aktuellen Stunde direkt anbieten; das Ranking bleibt unveraendert.
   const current = currentLesson();
@@ -3762,7 +4193,8 @@ async function renderFocusHome() {
       h("div", { class: "card" },
         h("h2", {}, "Klassen-Ranking"),
         h("p", { class: "muted small" }, "Klasse anklicken, um ihren Wald zu sehen und eine Fokus-Phase zu starten."),
-        list))
+        list),
+      state.guest ? guestClassesCard(classes) : null)
   );
 }
 
@@ -3841,7 +4273,9 @@ async function renderForestWalk() {
             h("div", { class: "chips" }, chips),
             h("button", { class: "btn btn--icon", type: "button", "aria-label": "Nächster Wald", onclick: () => go(current() + 1) }, "\u2192"))
         : null,
-      ranking.length ? landscape : emptyView("Noch keine Klassen. Lege zuerst unter „Klassen“ eine an."),
+      ranking.length ? landscape : emptyView(state.guest
+        ? "Noch keine Klasse. Lege im Fokus-Wald eine an."
+        : "Noch keine Klassen. Lege zuerst unter „Klassen“ eine an."),
       infoEl,
       h("section", { class: "lexicon" },
         h("h2", {}, "Baum-Lexikon"),

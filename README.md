@@ -4,10 +4,28 @@
 
 ---
 
+## Ohne Anmeldung
+
+Die Startseite zeigt, was BehaviourTracker kann. Ohne Konto gehen:
+
+- **Unterricht ausprobieren** (`app.html#/ausprobieren`): Vornamen eintippen
+  (oder Beispielnamen einsetzen), Kanban oder sortierte Ansicht wählen und
+  das Board ausprobieren. Nach dem Beenden stehen die Zeiten der Stunde da.
+  Nichts wird gespeichert – der Probe-Unterricht liegt nur im
+  Arbeitsspeicher des Tabs; vor dem Neuladen fragt der Browser nach.
+- **Fokus-Wald** (`app.html#/focus`): Klassen nur mit Namen anlegen, Bäume
+  pflanzen, Ranking, Belohnung und alle Wälder. Gespeichert wird das im
+  Browser (`localStorage`, Schlüssel `bt.gast.wald`), nicht auf dem Server.
+
+Ohne Anmeldung baut die App keine Verbindung zu Supabase auf; die Aufrufe
+laufen über `guestApi` in `app.js`.
+
 ## Anmelden
 
 BehaviourTracker ist derzeit ein **privates Projekt** (siehe unten): keine
-öffentliche Registrierung, Zugänge werden persönlich vergeben.
+öffentliche Registrierung, Zugänge werden persönlich vergeben. Wer auf
+**Anmelden** tippt, sieht zuerst diesen Hinweis und die Links zu den
+Funktionen ohne Konto, darunter das Anmeldeformular.
 
 1. Link oben öffnen und auf **Anmelden** tippen. Die App selbst liegt unter
    `app.html`; alte Lesezeichen auf `…/#/…` werden automatisch dorthin
@@ -281,12 +299,20 @@ Yt video geben -> Fragebogen/Quiz daraus erstellen
 
 ## Privat oder öffentlich
 
-**Derzeit privat.** Die Seite dient nur dem persönlichen und familiären
-Gebrauch. Damit entfällt die Impressumspflicht (§ 18 Abs. 1 MStV), solange
-nur Familie bzw. der engste private Kreis Zugang hat.
+**Derzeit: öffentliche Startseite, Konten nur auf Einladung.** Startseite,
+Fokus-Wald und Probe-Unterricht sind für alle offen; anmelden können nur
+Personen, denen der Betreiber einen Zugang angelegt hat.
 
-- Startseite `index.html` ist nur ein Hinweis „Privates Projekt“ und bei
-  Suchmaschinen auf `noindex`.
+> **Achtung Impressum:** Mit der öffentlichen Startseite und den Funktionen
+> ohne Anmeldung ist die Seite ein Angebot an Dritte und dient nicht mehr
+> ausschließlich persönlichen oder familiären Zwecken. Die Ausnahme nach
+> § 18 Abs. 1 MStV, auf die `impressum.html` sich beruft, greift dann nicht
+> mehr – Name und ladungsfähige Anschrift gehören ins Impressum (oder ein
+> Impressum-Service mit c/o-Adresse, oder eine Organisation betreibt die
+> Seite). Siehe Schritt 4 unten.
+
+- Startseite `index.html` ist die normale Produktseite, weiterhin mit
+  `noindex` (nicht in Suchmaschinen).
 - In der App ist die Registrierung aus (`SIGNUP_OPEN = false` in `app.js`).
 - **Wichtig:** Im Supabase-Dashboard unter *Authentication → Sign In / Providers*
   muss „Allow new users to sign up“ **aus** sein. Sonst ginge eine
@@ -296,11 +322,10 @@ nur Familie bzw. der engste private Kreis Zugang hat.
   User“ anhaken, Zugangsdaten persönlich weitergeben. Beim ersten Login
   bestätigt die Person die Nutzungsbedingungen.
 
-**Wieder öffentlich machen** (z. B. wenn das Projekt größer wird):
+**Ganz öffentlich machen** (z. B. wenn das Projekt größer wird):
 
-1. Öffentliche Startseite zurückholen:
-   `git checkout startseite-oeffentlich -- index.html landing.js`
-   (`landing.css` enthält die Abschnitte noch).
+1. ~~Öffentliche Startseite zurückholen~~ – erledigt (die alte Fassung liegt
+   im Tag `startseite-oeffentlich`).
 2. `SIGNUP_OPEN = true` in `app.js`, in Supabase „Allow new users to sign up“
    einschalten.
 3. `noindex` aus den HTML-Seiten und `X-Robots-Tag` aus `_headers` entfernen.

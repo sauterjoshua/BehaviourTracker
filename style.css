@@ -591,6 +591,7 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
 }
 .input:hover { border-color: var(--text-muted); }
 .input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+textarea.input { min-height: 10rem; resize: vertical; line-height: 1.5; }
 
 .field { display: block; margin-bottom: .85rem; }
 .field__label { display: block; margin-bottom: .3rem; font-size: .875rem; color: var(--text-muted); }
@@ -645,6 +646,20 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
 .auth__brand .brand-mark { width: 2.5rem; height: 2.5rem; margin-bottom: 1rem; }
 .auth__home { display: block; margin-top: 1.5rem; text-align: center; font-size: .875rem; color: var(--text-muted); text-decoration: none; transition: color var(--t); }
 .auth__home:hover { color: var(--text); }
+.auth__note { margin-bottom: 1rem; }
+.auth__note p { margin: 0 0 .6rem; }
+.auth__note .row { margin-top: .9rem; }
+.auth__note .btn { flex: 1 1 auto; }
+.auth__note-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: .8125rem;
+  font-weight: 600;
+}
 
 /* Logo: drei Balken in den Zustandsfarben ("Start" -> "grossartig") */
 .brand-mark { display: block; flex: none; }
