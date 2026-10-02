@@ -20,6 +20,14 @@ const topbarActionsEl = document.getElementById("topbarActions");
 const backBtn = document.getElementById("backBtn");
 const toastEl = document.getElementById("toast");
 
+// Schutz vor Clickjacking: GitHub Pages kann keinen X-Frame-Options-Header
+// setzen (Netlify schon, siehe _headers). In einem fremden Rahmen startet
+// die App deshalb gar nicht erst.
+if (window.top !== window.self) {
+  appEl.textContent = "BehaviourTracker kann nicht eingebettet werden. Bitte die Seite direkt öffnen.";
+  throw new Error("BehaviourTracker: Start in einem Frame verweigert.");
+}
+
 /* -------------------------------------------------------------------
    Kleine DOM- und Formathilfen
    ------------------------------------------------------------------- */
@@ -1191,7 +1199,11 @@ function navigate(hash) { window.location.hash = hash; }
 
 function parseRoute() {
   const raw = window.location.hash.replace(/^#\/?/, "");
-  return raw.split("/").filter(Boolean).map(decodeURIComponent);
+  // Kaputte Escapes (z. B. "%E0") wuerfen sonst einen URIError und der
+  // Router bliebe haengen; solche Teile werden einfach roh verwendet.
+  return raw.split("/").filter(Boolean).map((part) => {
+    try { return decodeURIComponent(part); } catch { return part; }
+  });
 }
 
 /**

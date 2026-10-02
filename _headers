@@ -1,0 +1,9 @@
+# Sicherheits-Header fuer Netlify (GitHub Pages ignoriert diese Datei).
+# Die Content-Security-Policy steht als <meta> in den HTML-Seiten; hier nur,
+# was per <meta> nicht geht (frame-ancestors) und die ueblichen Haertungen.
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: microphone=(self), camera=(), geolocation=(), payment=(), usb=()

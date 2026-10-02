@@ -208,6 +208,11 @@ SQL-Editor ausgeführt werden.
   (`fonts/`) und Supabase-Bibliothek (`vendor/`) liegen im Repo. hCaptcha
   wird nur geladen, wenn `HCAPTCHA_SITE_KEY` gesetzt ist – dann vorher in
   `datenschutz.html` ergänzen.
+- **Sicherheit:** Jede Seite hat eine Content-Security-Policy (`<meta>` im
+  Kopf): Skripte nur von hier, Verbindungen nur zu Supabase. Inline-Skripte
+  sind deshalb tabu, neue Skripte als eigene Datei einbinden. Netlify
+  liefert zusätzlich die Header aus `_headers`; in einem fremden Frame
+  startet die App nicht (Schutz vor Clickjacking).
 - Das interne Verzeichnis von Verarbeitungstätigkeiten (Art. 30 DSGVO)
   liegt in `docs/verarbeitungsverzeichnis.md`. Bei neuen Funktionen, die
   Daten speichern, diese Datei und `datenschutz.html` mitpflegen.
