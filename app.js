@@ -56,34 +56,30 @@ function h(tag, props = {}, ...children) {
   return el;
 }
 
-/** Papierkorb-Icon als Inline-SVG. `document.createElement` erzeugt fuer
- * "svg" kein echtes SVGElement, deshalb per createElementNS statt ueber
- * h() gebaut. stroke="currentColor" macht es faerbbar (z. B. via
- * .btn--danger), anders als ein farbiges Emoji-Glyph. */
-function trashIcon() {
-  const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "1.1em");
-  svg.setAttribute("height", "1.1em");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.setAttribute("aria-hidden", "true");
-  for (const d of [
-    "M3 6h18",
-    "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
-    "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
-    "M10 11v6",
-    "M14 11v6"
-  ]) {
-    const path = document.createElementNS(svgNS, "path");
-    path.setAttribute("d", d);
-    svg.append(path);
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Wie h(), nur fuer SVG-Elemente. */
+function svg(tag, attrs = {}, ...children) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === null || value === undefined || value === false) continue;
+    el.setAttribute(key, String(value));
   }
-  return svg;
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    el.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return el;
+}
+
+/** Papierkorb-Icon als Inline-SVG. stroke="currentColor" macht es faerbbar
+ * (z. B. via .btn--danger), anders als ein farbiges Emoji-Glyph. */
+function trashIcon() {
+  return svg("svg", {
+    viewBox: "0 0 24 24", width: "1.1em", height: "1.1em", fill: "none", stroke: "currentColor",
+    "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true"
+  }, ["M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
+      "M10 11v6", "M14 11v6"].map((d) => svg("path", { d })));
 }
 
 /** Steuerzeichen, die aus Eingaben entfernt werden. */
@@ -175,16 +171,8 @@ const ICONS = {
 };
 
 function icon(name) {
-  const el = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  el.setAttribute("class", "icon");
-  el.setAttribute("viewBox", "0 0 24 24");
-  el.setAttribute("aria-hidden", "true");
-  for (const d of ICONS[name]) {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", d);
-    el.append(path);
-  }
-  return el;
+  return svg("svg", { class: "icon", viewBox: "0 0 24 24", "aria-hidden": "true" },
+    ICONS[name].map((d) => svg("path", { d })));
 }
 
 /* -------------------------------------------------------------------
@@ -2769,7 +2757,7 @@ async function renderBoard(lessonId) {
   async function move(studentId, targetColumn) {
     if (busy || lesson.ended_at) return;
     busy = true;
-    const card = boardEl.querySelector(`.student[data-student-id="${cssEscape(studentId)}"]`);
+    const card = boardEl.querySelector(`.student[data-student-id="${CSS.escape(studentId)}"]`);
     card?.classList.add("student--busy");
     try {
       await api.moveStudent(lessonId, studentId, targetColumn);
@@ -2823,10 +2811,6 @@ async function renderBoard(lessonId) {
 }
 
 /** Minimaler CSS.escape-Ersatz fuer aeltere Browser. */
-function cssEscape(value) {
-  return window.CSS && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, "\\$&");
-}
-
 /* -------------------------------------------------------------------
    Fokus-Wald: Lautstaerke-Monitor mit Klassenwald
    -------------------------------------------------------------------
@@ -2887,28 +2871,12 @@ const treesLabel = (n) => (n === 1 ? "1 Baum" : `${n} Bäume`);
 
 /* ---------- Baeume (SVG) ---------- */
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-
 /** Logo wie auf der Startseite (index.html): drei Balken in den Zustandsfarben. */
 function brandMark() {
   return svg("svg", { class: "brand-mark", viewBox: "0 0 32 32", "aria-hidden": "true" },
     svg("rect", { class: "brand-mark__a", x: 3, y: 17, width: 7, height: 12, rx: 2 }),
     svg("rect", { class: "brand-mark__b", x: 12.5, y: 10, width: 7, height: 19, rx: 2 }),
     svg("rect", { class: "brand-mark__c", x: 22, y: 3, width: 7, height: 26, rx: 2 }));
-}
-
-/** Wie h(), nur fuer SVG-Elemente. */
-function svg(tag, attrs = {}, ...children) {
-  const el = document.createElementNS(SVG_NS, tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (value === null || value === undefined || value === false) continue;
-    el.setAttribute(key, String(value));
-  }
-  for (const child of children.flat()) {
-    if (child === null || child === undefined || child === false) continue;
-    el.append(child instanceof Node ? child : document.createTextNode(String(child)));
-  }
-  return el;
 }
 
 /**
