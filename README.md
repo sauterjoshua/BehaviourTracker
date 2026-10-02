@@ -6,11 +6,14 @@
 
 ## Anmelden
 
-1. Link oben öffnen – das ist die Startseite. Oben rechts auf **Anmelden**
-   (oder auf **Kostenlos starten**, um ein Konto anzulegen). Die App selbst
-   liegt unter `app.html`; alte Lesezeichen auf `…/#/…` werden automatisch
-   dorthin weitergeleitet.
-2. Mit E-Mail und Passwort anmelden (bzw. beim ersten Mal registrieren).
+BehaviourTracker ist derzeit ein **privates Projekt** (siehe unten): keine
+öffentliche Registrierung, Zugänge werden persönlich vergeben.
+
+1. Link oben öffnen und auf **Anmelden** tippen. Die App selbst liegt unter
+   `app.html`; alte Lesezeichen auf `…/#/…` werden automatisch dorthin
+   weitergeleitet.
+2. Mit E-Mail und Passwort anmelden. Beim ersten Mal die Nutzungsbedingungen
+   bestätigen.
 3. Nach dem Login erscheint **Heute**. Oben in der Kopfzeile:
    - Navigation **Heute · Klassen · Unterrichte · Fokus-Wald**,
    - **Jetzt: 7b** – die Klasse der aktuellen Stunde laut Stundenplan,
@@ -221,3 +224,36 @@ SQL-Editor ausgeführt werden.
 Erweitertungen:
 
 Yt video geben -> Fragebogen/Quiz daraus erstellen
+
+---
+
+## Privat oder öffentlich
+
+**Derzeit privat.** Die Seite dient nur dem persönlichen und familiären
+Gebrauch. Damit entfällt die Impressumspflicht (§ 18 Abs. 1 MStV), solange
+nur Familie bzw. der engste private Kreis Zugang hat.
+
+- Startseite `index.html` ist nur ein Hinweis „Privates Projekt“ und bei
+  Suchmaschinen auf `noindex`.
+- In der App ist die Registrierung aus (`SIGNUP_OPEN = false` in `app.js`).
+- **Wichtig:** Im Supabase-Dashboard unter *Authentication → Sign In / Providers*
+  muss „Allow new users to sign up“ **aus** sein. Sonst ginge eine
+  Registrierung weiterhin direkt über die API.
+- **Zugang vergeben:** Supabase-Dashboard → *Authentication → Users → Add
+  user → Create new user*, E-Mail und Passwort eintragen, „Auto Confirm
+  User“ anhaken, Zugangsdaten persönlich weitergeben. Beim ersten Login
+  bestätigt die Person die Nutzungsbedingungen.
+
+**Wieder öffentlich machen** (z. B. wenn das Projekt größer wird):
+
+1. Öffentliche Startseite zurückholen:
+   `git checkout startseite-oeffentlich -- index.html landing.js`
+   (`landing.css` enthält die Abschnitte noch).
+2. `SIGNUP_OPEN = true` in `app.js`, in Supabase „Allow new users to sign up“
+   einschalten.
+3. `noindex` aus den HTML-Seiten und `X-Robots-Tag` aus `_headers` entfernen.
+4. Impressum (Name, ladungsfähige Anschrift, Kontakt) und den Verantwortlichen
+   in Datenschutzerklärung und Nutzungsbedingungen eintragen. Alternativ
+   betreibt eine Organisation (z. B. Schule oder Förderverein) das Angebot,
+   dann stehen deren Angaben im Impressum.
+

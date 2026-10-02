@@ -443,6 +443,12 @@ function termsCheck(input) {
       "."));
 }
 
+/* Registrierung in der App. Solange das Projekt privat ist, false: Zugaenge
+   legt der Betreiber im Supabase-Dashboard an (Authentication -> Users ->
+   Add user). Zusaetzlich muss dort "Allow new users to sign up" aus sein,
+   sonst ginge eine Registrierung weiterhin direkt ueber die API. */
+const SIGNUP_OPEN = false;
+
 const termsAccepted = () => state.session?.user?.user_metadata?.terms_version === TERMS_VERSION;
 
 // Fassung von nutzungsbedingungen.html ("Stand"); wird bei der Registrierung
@@ -510,7 +516,7 @@ function renderAuth() {
   let mode = "signin";
   let captchaWidget = null;
   // Der Button "Kostenlos starten" der Startseite verlinkt auf app.html?registrieren.
-  const wantsSignup = new URLSearchParams(window.location.search).has("registrieren");
+  const wantsSignup = SIGNUP_OPEN && new URLSearchParams(window.location.search).has("registrieren");
 
   const errorBox = h("div", { class: "error-box", hidden: true });
   const emailInput = h("input", {
@@ -557,7 +563,7 @@ function renderAuth() {
   }
 
   const form = h("form", { class: "card" },
-    h("div", { class: "auth__tabs" }, tabSignin, tabSignup),
+    SIGNUP_OPEN ? h("div", { class: "auth__tabs" }, tabSignin, tabSignup) : null,
     errorBox,
     h("label", { class: "field" }, h("span", { class: "field__label" }, "E-Mail"), emailInput),
     h("label", { class: "field" }, h("span", { class: "field__label" }, "Passwort"), passwordInput),
@@ -1735,7 +1741,7 @@ function accountCard() {
         // PGRST202: Funktion unbekannt, d. h. Migration 0006 fehlt noch
         if (error?.code === "PGRST202" || error?.code === "42883") {
           throw new Error("Die Kontolöschung ist auf dem Server noch nicht eingerichtet. " +
-            "Bitte per E-Mail an den Betreiber wenden (siehe Impressum).");
+            "Bitte wende dich an den Betreiber, von dem du deinen Zugang hast.");
         }
         throw error;
       }
