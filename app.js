@@ -412,6 +412,27 @@ function runCleanup() {
 
 const captchaEnabled = () => Boolean(CONFIG && CONFIG.HCAPTCHA_SITE_KEY);
 
+/* Farbwelten: die Tokens stehen in style.css (Abschnitt "Farbwelten").
+   Die Wahl wird im Konto gespeichert (user_metadata.palette), damit sie auf
+   allen Geraeten gilt, z. B. auch am Beamer-PC. */
+const PALETTES = [
+  { key: "salbei",    name: "Salbei",    hint: "Gedämpftes Waldgrün (Standard)" },
+  { key: "tafel",     name: "Tafelgrün", hint: "Petrol wie die Schultafel" },
+  { key: "tinte",     name: "Tinte",     hint: "Königsblau wie Füllertinte" },
+  { key: "bernstein", name: "Bernstein", hint: "Gold wie ein Sternchen im Heft" }
+];
+const DEFAULT_PALETTE = "salbei";
+
+function paletteOf(session) {
+  const key = session?.user?.user_metadata?.palette;
+  return PALETTES.some((p) => p.key === key) ? key : DEFAULT_PALETTE;
+}
+
+function applyPalette(key) {
+  if (key === DEFAULT_PALETTE) delete document.documentElement.dataset.palette;
+  else document.documentElement.dataset.palette = key;
+}
+
 // Fassung von nutzungsbedingungen.html ("Stand"); wird bei der Registrierung
 // mit Zeitpunkt in den user_metadata gespeichert. Bei Aenderungen anpassen.
 const TERMS_VERSION = "2026-10-01";
@@ -785,7 +806,8 @@ const api = {
         email: user?.email ?? null,
         registriert_am: user?.created_at ?? null,
         nutzungsbedingungen: user?.user_metadata?.terms_version ?? null,
-        nutzungsbedingungen_akzeptiert_am: user?.user_metadata?.terms_accepted_at ?? null
+        nutzungsbedingungen_akzeptiert_am: user?.user_metadata?.terms_accepted_at ?? null,
+        farbwelt: user?.user_metadata?.palette ?? null
       },
       tabellen: {}
     };
@@ -1374,6 +1396,7 @@ async function renderSettings() {
           h("p", { class: "muted" },
             "Für Stundenplan und automatisches Unterrichtsende muss einmalig die Migration " +
             "supabase/migrations/0007_schedule_autoend.sql im Supabase SQL-Editor ausgeführt werden.")),
+        paletteCard(),
         accountCard()));
     return;
   }
@@ -1573,7 +1596,51 @@ async function renderSettings() {
           "in der Kopfzeile, auf „Heute“ und beim Starten."),
         weekEl),
       autoEndCard,
+      paletteCard(),
       accountCard()));
+}
+
+/** Farbwelt-Auswahl. Gespeichert im Auth-Profil (user_metadata.palette)
+ * statt in teachers.settings: steht so schon vor dem Laden des
+ * Lehrerprofils fest und braucht keine Migration. */
+function paletteCard() {
+  const current = paletteOf(state.session);
+  // Jede Option traegt ihre eigene Farbwelt (data-palette-preview), damit
+  // die Farbfelder die jeweiligen Farben zeigen statt der aktiven.
+  const picker = h("fieldset", { class: "palette-picker" },
+    h("legend", { class: "sr-only" }, "Farbwelt"),
+    PALETTES.map((p) =>
+      h("label", { class: "palette-option", "data-palette-preview": p.key },
+        h("input", { type: "radio", name: "palette", value: p.key, checked: p.key === current }),
+        h("span", { class: "palette-option__swatches", "aria-hidden": "true" },
+          h("i", { class: "is-accent" }), h("i", { class: "is-links" }),
+          h("i", { class: "is-mitte" }), h("i", { class: "is-rechts" })),
+        h("span", { class: "palette-option__text" },
+          h("strong", {}, p.name), h("span", { class: "muted small" }, p.hint)))));
+
+  picker.addEventListener("change", async (event) => {
+    const key = event.target.value;
+    const previous = paletteOf(state.session);
+    applyPalette(key); // sofort zeigen, dann speichern
+    picker.disabled = true;
+    try {
+      const { error } = await sb.auth.updateUser({ data: { palette: key } });
+      if (error) throw error;
+      toast(`Farbwelt „${PALETTES.find((p) => p.key === key).name}“ gespeichert.`);
+    } catch (error) {
+      applyPalette(previous);
+      picker.querySelector(`input[value="${previous}"]`).checked = true;
+      showError(error, "Die Farbwelt konnte nicht gespeichert werden.");
+    } finally {
+      picker.disabled = false;
+    }
+  });
+
+  return h("section", { class: "card" },
+    h("h2", {}, "Farbwelt"),
+    h("p", { class: "muted small" },
+      "Gilt für dein Konto auf allen Geräten. Der Fokus-Wald am Beamer behält seine eigenen Farben."),
+    picker);
 }
 
 /** Konto & Daten: Export und Loeschung (Betroffenenrechte nach DSGVO). */
@@ -4160,10 +4227,12 @@ if (sb) {
 
   const { data: { session } } = await sb.auth.getSession();
   state.session = session;
+  applyPalette(paletteOf(session));
 
   sb.auth.onAuthStateChange((event, nextSession) => {
     const changedUser = nextSession?.user?.id !== state.session?.user?.id;
     state.session = nextSession;
+    applyPalette(paletteOf(nextSession));
     if (changedUser) {
       state.teacher = null;
       state.openLessons.clear();

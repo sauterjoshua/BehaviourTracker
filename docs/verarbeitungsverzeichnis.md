@@ -31,7 +31,7 @@ oder Datenschutzerklärung mit anpassen.
 | Zweck | Registrierung, Anmeldung, E-Mail-Bestätigung, Missbrauchsschutz |
 | Rechtsgrundlage | Art. 6 Abs. 1 lit. b DSGVO; Sicherheitsprotokolle: lit. f |
 | Betroffene | Lehrkräfte (Nutzerinnen und Nutzer) |
-| Daten | E-Mail, Passwort-Hash, Anzeigename, Registrierungs- und Anmeldezeitpunkte, akzeptierte Fassung der Nutzungsbedingungen mit Zeitpunkt, IP/Browser in Auth-Protokollen |
+| Daten | E-Mail, Passwort-Hash, Anzeigename, Registrierungs- und Anmeldezeitpunkte, akzeptierte Fassung der Nutzungsbedingungen mit Zeitpunkt, gewählte Farbwelt, IP/Browser in Auth-Protokollen |
 | Empfänger | Supabase Pte. Ltd. (Auftragsverarbeiter, DPA mit SCC) |
 | Drittland | Speicherung in der EU; mögliche Zugriffe aus Drittländern über EU-Standardvertragsklauseln (Art. 46 DSGVO) |
 | Löschung | sofort bei Kontolöschung (Funktion `delete_own_account`), Backups nach Fristen von Supabase |

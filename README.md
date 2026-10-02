@@ -28,11 +28,16 @@
 BehaviourTracker hilft, das Unterrichtsverhalten von Schülerinnen und
 Schülern sichtbar zu machen. Jede Person hat einen von drei Zuständen:
 
-| Zustand | Bedeutung |
+| Zustand | Darstellung |
 | --- | --- |
-| Da geht mehr | grau |
-| Du arbeitest gut | hellgrün |
-| Du arbeitest großartig | dunkelgrün |
+| Da geht mehr | neutral grau |
+| Du arbeitest gut | helle Akzentfarbe |
+| Du arbeitest großartig | kräftige Akzentfarbe |
+
+Die Farben hängen von der gewählten **Farbwelt** ab: Standard ist
+*Salbei* (gedämpftes Waldgrün), unter **Konto-Menü → Einstellungen** lassen
+sich *Tafelgrün*, *Tinte* und *Bernstein* wählen. Die Wahl
+wird im Konto gespeichert und gilt auf allen Geräten.
 
 Beim Start eines Unterrichts wählt man eine von zwei Ansichten:
 
@@ -195,7 +200,7 @@ SQL-Editor ausgeführt werden.
   gibt dazu eine Warnung aus.
 - Bei der Registrierung müssen die Nutzungsbedingungen akzeptiert werden;
   Fassung und Zeitpunkt landen in den `user_metadata` des Kontos.
-- Unter **Konto & Daten** im Menü lassen sich alle Daten als JSON
+- Unter **Einstellungen → Konto & Daten** lassen sich alle Daten als JSON
   exportieren und das Konto samt aller Daten löschen. Für die Löschung muss
   einmalig `supabase/migrations/0006_delete_account.sql` im Supabase
   SQL-Editor ausgeführt werden.

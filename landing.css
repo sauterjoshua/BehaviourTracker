@@ -170,7 +170,7 @@ p { margin: 0; }
 .mockup__live {
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(34, 197, 94, .18);
+  background: var(--col-mitte-bg);
   color: var(--col-mitte-head);
   font-size: .75rem;
   font-weight: 600;
@@ -358,14 +358,14 @@ p { margin: 0; }
 .cta__panel {
   /* Dunkle Flaeche in beiden Modi; Akzent lokal auf die helle Variante,
      damit der Button auf dem dunklen Grund genug Kontrast hat. */
-  --accent:       #4ade80;
-  --accent-hover: #86efac;
-  --accent-soft:  rgba(74, 222, 128, .20);
-  --accent-text:  #052e16;
+  --accent:       var(--accent-on-dark);
+  --accent-hover: var(--accent-on-dark-hover);
+  --accent-soft:  color-mix(in srgb, var(--accent-on-dark) 20%, transparent);
+  --accent-text:  var(--accent-on-dark-text);
   padding: 64px 24px;
   border-radius: var(--radius);
   background:
-    radial-gradient(ellipse 60% 80% at 50% 120%, rgba(74, 222, 128, .18), transparent 70%),
+    radial-gradient(ellipse 60% 80% at 50% 120%, color-mix(in srgb, var(--accent-on-dark) 18%, transparent), transparent 70%),
     #111111;
   color: #fafafa;
   text-align: center;
