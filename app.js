@@ -433,6 +433,22 @@ function applyPalette(key) {
   else document.documentElement.dataset.palette = key;
 }
 
+/** Checkbox "Nutzungsbedingungen akzeptieren" (Registrierung und
+ * Bestaetigung einer neuen Fassung, siehe renderTermsGate). */
+function termsCheck(input) {
+  return h("label", { class: "check" },
+    input,
+    h("span", {},
+      "Ich akzeptiere die ",
+      h("a", { href: "./nutzungsbedingungen.html", target: "_blank", rel: "noopener" }, "Nutzungsbedingungen"),
+      " (inkl. Auftragsverarbeitung) und gebe Schülerdaten nur mit Erlaubnis meiner Schule ein. " +
+      "Hinweise zum Datenschutz: ",
+      h("a", { href: "./datenschutz.html", target: "_blank", rel: "noopener" }, "Datenschutzerklärung"),
+      "."));
+}
+
+const termsAccepted = () => state.session?.user?.user_metadata?.terms_version === TERMS_VERSION;
+
 // Fassung von nutzungsbedingungen.html ("Stand"); wird bei der Registrierung
 // mit Zeitpunkt in den user_metadata gespeichert. Bei Aenderungen anpassen.
 const TERMS_VERSION = "2026-10-01";
@@ -516,15 +532,8 @@ function renderAuth() {
   const nicknameField = h("label", { class: "field", hidden: true },
     h("span", { class: "field__label" }, "Anzeigename"), nicknameInput);
   const termsInput = h("input", { type: "checkbox" });
-  const termsField = h("label", { class: "check", hidden: true },
-    termsInput,
-    h("span", {},
-      "Ich akzeptiere die ",
-      h("a", { href: "./nutzungsbedingungen.html", target: "_blank" }, "Nutzungsbedingungen"),
-      " (inkl. Auftragsverarbeitung) und gebe Schülerdaten nur mit Erlaubnis meiner Schule ein. " +
-      "Hinweise zum Datenschutz: ",
-      h("a", { href: "./datenschutz.html", target: "_blank" }, "Datenschutzerklärung"),
-      "."));
+  const termsField = termsCheck(termsInput);
+  termsField.hidden = true;
   const captchaBox = h("div", { class: "captcha" });
   const submitBtn = h("button", { class: "btn btn--primary", type: "submit" }, "Anmelden");
 
@@ -1250,6 +1259,11 @@ async function router() {
       return;
     }
   }
+  // Ohne Bestaetigung der aktuellen Nutzungsbedingungen (inkl. Vereinbarung
+  // zur Auftragsverarbeitung) keine Ansicht: betrifft Konten von vor ihrer
+  // Einfuehrung und alle Konten nach einer neuen Fassung (TERMS_VERSION).
+  if (!termsAccepted()) { renderTermsGate(); return; }
+
   // Faellige Unterrichte (automatisches Ende) bei jedem Ansichtswechsel abschliessen.
   await api.closeDueLessons();
 
@@ -1267,6 +1281,64 @@ async function router() {
         h("button", { class: "btn", onclick: () => router() }, "Erneut versuchen"))
     );
   }
+}
+
+/* -------------------------------------------------------------------
+   Ansicht: Nutzungsbedingungen bestaetigen (vor allen anderen Ansichten)
+   ------------------------------------------------------------------- */
+
+function renderTermsGate() {
+  appEl.className = "app";
+  setChrome({ title: "Nutzungsbedingungen", minimal: true });
+
+  const updated = Boolean(state.session.user.user_metadata?.terms_version);
+  const input = h("input", { type: "checkbox" });
+  const errorBox = h("div", { class: "error-box", hidden: true });
+  const acceptBtn = h("button", { class: "btn btn--primary", type: "submit" }, "Bestätigen und weiter");
+
+  const form = h("form", { class: "card" },
+    h("h2", {}, updated ? "Die Nutzungsbedingungen haben sich geändert" : "Bitte bestätige die Nutzungsbedingungen"),
+    h("p", { class: "muted" },
+      updated
+        ? "Seit deiner letzten Bestätigung gibt es eine neue Fassung der Nutzungsbedingungen. "
+        : "Für BehaviourTracker gelten jetzt Nutzungsbedingungen. ",
+      "Sie enthalten auch die Vereinbarung zur Auftragsverarbeitung für die Schülerdaten, die du einträgst. " +
+      "Deine Daten bleiben unverändert."),
+    errorBox,
+    termsCheck(input),
+    h("div", { class: "row" },
+      acceptBtn,
+      h("button", { class: "btn btn--ghost", type: "button", onclick: logout }, "Abmelden")));
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!input.checked) {
+      errorBox.textContent = "Bitte setze zuerst den Haken.";
+      errorBox.hidden = false;
+      return;
+    }
+    acceptBtn.disabled = true;
+    try {
+      const { data, error } = await sb.auth.updateUser({
+        data: { terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() }
+      });
+      if (error) throw error;
+      // USER_UPDATED aktualisiert state.session ebenfalls; hier zur Sicherheit direkt.
+      state.session = { ...state.session, user: data.user };
+      router();
+    } catch (error) {
+      showError(error, "Die Bestätigung konnte nicht gespeichert werden.");
+      acceptBtn.disabled = false;
+    }
+  });
+
+  appEl.replaceChildren(
+    h("div", { class: "stack terms-gate" },
+      form,
+      // Betroffenenrechte bleiben auch ohne Zustimmung erreichbar.
+      h("p", { class: "muted small" },
+        "Nicht einverstanden? Dann kannst du hier alle deine Daten herunterladen oder dein Konto löschen."),
+      accountCard()));
 }
 
 /* -------------------------------------------------------------------

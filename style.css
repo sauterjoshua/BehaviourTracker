@@ -654,6 +654,8 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
 .auth .btn--primary { width: 100%; }
 .captcha { display: flex; justify-content: center; margin-bottom: .85rem; }
 
+.terms-gate { max-width: 40rem; margin: 2rem auto 0; }
+
 /* Checkbox mit Text (Nutzungsbedingungen bei der Registrierung) */
 .check { display: flex; gap: .6rem; align-items: flex-start; margin-bottom: 1rem; font-size: .875rem; color: var(--text-muted); line-height: 1.45; }
 .check input { flex: none; width: 1.1rem; height: 1.1rem; margin: .1rem 0 0; accent-color: var(--accent); }
