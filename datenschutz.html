@@ -31,7 +31,7 @@
 
   <main id="main" class="container legal">
     <h1>Datenschutzerklärung</h1>
-    <p class="legal__meta">Stand: 1. Oktober 2026</p>
+    <p class="legal__meta">Stand: 2. Oktober 2026</p>
 
     <div class="legal__box">
       <strong>Das Wichtigste in Kürze</strong>
@@ -41,6 +41,7 @@
         <li>Deine Daten in der App liegen in einem Rechenzentrum in der EU. Jedes Konto sieht nur seine eigenen Daten.</li>
         <li>Das Mikrofon im Fokus-Wald nimmt nichts auf. Die Lautstärke wird nur in deinem Browser berechnet.</li>
         <li>Du kannst in der App jederzeit alle Daten exportieren und dein Konto mit allen Daten löschen.</li>
+        <li>Unterrichte und ihre Zeiten werden am Ende jedes Schuljahres automatisch gelöscht.</li>
       </ul>
     </div>
 
@@ -97,7 +98,7 @@
       <li>Klassen (Name, z. B. „7b“),</li>
       <li>Schülerinnen und Schüler (Name oder Kürzel, optional Sitzplatz im Sitzplan),</li>
       <li>Unterrichte (Name, Datum, gewählte Ansicht, Zeitpunkt des automatischen Endes),</li>
-      <li>Zustände im Unterricht („Da geht mehr“, „Du arbeitest gut“, „Du arbeitest großartig“) mit Zeitstempeln und daraus berechneten Zeiten,</li>
+      <li>Zustände im Unterricht: in welcher Gruppe jemand gerade steht („Start“, „Du arbeitest gut“, „Du arbeitest großartig“) und die Zeiten in „Du arbeitest gut“ und „Du arbeitest großartig“ mit Zeitstempeln. Wie lange jemand im Startzustand war, wird nicht gespeichert,</li>
       <li>Fokus-Wald: gepflanzte Bäume (Klasse, Zielzeit, Zeitpunkt) und Belohnungstexte,</li>
       <li>dein Stundenplan, falls du ihn einrichtest (Stundenzeiten und welche Klasse du an welchem Wochentag in welcher Stunde hast), und deine Einstellung zum automatischen Unterrichtsende.</li>
     </ul>
@@ -113,6 +114,7 @@
       <li>Soweit Supabase oder seine Unterauftragnehmer aus Ländern außerhalb der EU auf Daten zugreifen können, etwa für Betrieb oder Support, ist das durch EU-Standardvertragsklauseln abgesichert (Art. 46 Abs. 2 lit. c DSGVO).</li>
     </ul>
     <p>Die Programmbibliothek von Supabase wird zusammen mit dieser Website ausgeliefert und nicht von einem fremden Server geladen.</p>
+    <p>Öffnest du die Klassenansicht eines Unterrichts, hält die App eine verschlüsselte Live-Verbindung (WebSocket) zu Supabase. Darüber kommen Änderungen sofort an. Es gelten dieselben Zugriffsregeln wie sonst: Jedes Konto erhält nur seine eigenen Daten.</p>
 
     <h2 id="browser">6. Speicherung im Browser</h2>
     <p>Die App speichert im lokalen Speicher deines Browsers (localStorage):</p>
@@ -134,6 +136,7 @@
     <h2 id="speicherdauer">9. Speicherdauer und Löschung</h2>
     <ul>
       <li><strong>Konto und Inhalte:</strong> bis du sie löschst. Einzelne Klassen, Schüler und Unterrichte löschst du direkt in der App. Mit „Konto löschen“ (in der App unter Einstellungen → Konto &amp; Daten) werden dein Konto und alle zugehörigen Daten sofort aus der Datenbank entfernt.</li>
+      <li><strong>Unterrichte mit ihren Zuständen und Zeiten:</strong> bis zum Ende des Schuljahres. Am 1. August werden alle Unterrichte des abgelaufenen Schuljahres automatisch gelöscht. Klassen, Schülerinnen und Schüler, Sitzplan und Fokus-Wald bleiben, bis du sie löschst.</li>
       <li><strong>Sicherungskopien</strong> beim Dienstleister werden nach dessen Fristen automatisch überschrieben.</li>
       <li><strong>Protokolle</strong> der Hosting-Anbieter und von Supabase: nach den Vorgaben der Anbieter.</li>
     </ul>

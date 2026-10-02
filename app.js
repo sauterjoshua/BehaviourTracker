@@ -208,20 +208,68 @@ if (!CONFIG || !CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY ||
    Spalten-Definition
    ------------------------------------------------------------------- */
 
+// "links" ist der neutrale Startzustand: Dort beginnen alle, seine Dauer
+// wird nicht gespeichert (Migration 0008). Gemessen wird nur "mitte" und "rechts".
 const COLUMNS = [
-  { key: "links",  title: "Da geht mehr" },
+  { key: "links",  title: "Start" },
   { key: "mitte",  title: "Du arbeitest gut" },
   { key: "rechts", title: "Du arbeitest großartig" }
 ];
-// Singular-/Pluralformen fuer die Live-Zaehlung in der sortierten Ansicht
-// (z. B. "1 kann mehr | 5 arbeiten gut | 2 arbeiten großartig").
+const POSITIVE_COLUMNS = COLUMNS.filter((c) => c.key !== "links");
+// Singular-/Pluralformen fuer die Live-Zaehlung
+// (z. B. "12 am Start | 5 arbeiten gut | 2 arbeiten großartig").
 const STATE_LABELS = {
-  links:  { one: "kann mehr",       many: "können mehr" },
+  links:  { one: "am Start",        many: "am Start" },
   mitte:  { one: "arbeitet gut",    many: "arbeiten gut" },
   rechts: { one: "arbeitet großartig", many: "arbeiten großartig" }
 };
 const columnIndex = (key) => COLUMNS.findIndex((c) => c.key === key);
 const isAdjacent = (from, to) => Math.abs(columnIndex(from) - columnIndex(to)) === 1;
+
+/** Anzahl der Schueler je Zustand. */
+function stateCounts(rows) {
+  const counts = { links: 0, mitte: 0, rechts: 0 };
+  for (const row of rows) {
+    if (row.col in counts) counts[row.col]++;
+  }
+  return counts;
+}
+
+/** "12 am Start | 5 arbeiten gut | 2 arbeiten großartig" */
+function countsText(counts) {
+  return COLUMNS
+    .map((c) => {
+      const n = counts[c.key];
+      return `${n} ${n === 1 ? STATE_LABELS[c.key].one : STATE_LABELS[c.key].many}`;
+    })
+    .join(" | ");
+}
+
+const byStudentName = (rows) =>
+  [...rows].sort((a, b) => (a.students?.name ?? "").localeCompare(b.students?.name ?? "", "de"));
+
+/** Die drei Kanban-Spalten; makeCard(row, columnKey) baut die einzelne Karte. */
+function kanbanColumns(rows, makeCard) {
+  const byColumn = { links: [], mitte: [], rechts: [] };
+  for (const row of rows) {
+    if (row.col in byColumn) byColumn[row.col].push(row);
+  }
+  return COLUMNS.map((column) => {
+    const list = byColumn[column.key].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    return h("div", { class: `column column--${column.key}` },
+      h("div", { class: "column__head" },
+        column.title,
+        h("span", { class: "column__count" }, String(list.length))),
+      h("div", { class: "column__body", dataset: { column: column.key } },
+        list.length ? list.map((row) => makeCard(row, column.key)) : h("p", { class: "empty small" }, "–")));
+  });
+}
+
+/** Schuelerbox ohne Bedienung (Klassenansicht). */
+function staticStudentBox(row) {
+  return h("div", { class: "student", dataset: { studentId: row.student_id, column: row.col } },
+    h("div", { class: "student__name" }, row.students?.name ?? "Unbekannt"));
+}
 
 /* -------------------------------------------------------------------
    Board-Layout: quadratische Schueler-Boxen, Groesse dynamisch berechnet
@@ -375,6 +423,17 @@ const sb = CONFIG
     })
   : null;
 
+/** Alle Zeilen einer Abfrage: PostgREST liefert hoechstens 1000 pro Anfrage.
+ * build() muss jedes Mal eine neue, eindeutig sortierte Abfrage liefern. */
+async function allPages(build) {
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const data = unwrap(await build().range(from, from + 999));
+    rows.push(...data);
+    if (data.length < 1000) return rows;
+  }
+}
+
 /** Wirft bei Supabase-Fehlern, gibt sonst die Daten zurueck. */
 function unwrap({ data, error }) {
   if (error) throw error;
@@ -453,7 +512,7 @@ const termsAccepted = () => state.session?.user?.user_metadata?.terms_version ==
 
 // Fassung von nutzungsbedingungen.html ("Stand"); wird bei der Registrierung
 // mit Zeitpunkt in den user_metadata gespeichert. Bei Aenderungen anpassen.
-const TERMS_VERSION = "2026-10-01";
+const TERMS_VERSION = "2026-10-02";
 
 /** Laedt hCaptcha erst, wenn es wirklich gebraucht wird (Key gesetzt und
  * Login-Ansicht offen). Ohne Key wird js.hcaptcha.com nie kontaktiert.
@@ -726,10 +785,18 @@ const api = {
   },
 
   async studentTimes(studentId) {
-    return unwrap(await sb.from("student_lesson_column_seconds")
+    return allPages(() => sb.from("student_lesson_column_seconds")
       .select("lesson_id, lesson_name, lesson_date, col:column, seconds")
       .eq("student_id", studentId)
-      .order("lesson_date", { ascending: false }));
+      .order("lesson_id").order("column"));
+  },
+
+  /** Unterrichte, an denen die Person teilgenommen hat (auch ohne erfasste Zeit). */
+  async studentLessons(studentId) {
+    return allPages(() => sb.from("lesson_students")
+      .select("lesson_id, lessons(name, date)")
+      .eq("student_id", studentId)
+      .order("id"));
   },
 
   async startLesson(classId, mode) {
@@ -771,9 +838,25 @@ const api = {
 
   /** Zeiten aller Schueler einer Klasse, je Unterricht und Spalte. */
   async classTimes(classId) {
-    return unwrap(await sb.from("student_lesson_column_seconds")
+    return allPages(() => sb.from("student_lesson_column_seconds")
       .select("student_id, lesson_id, col:column, seconds")
-      .eq("class_id", classId));
+      .eq("class_id", classId)
+      .order("lesson_id").order("student_id").order("column"));
+  },
+
+  /** Wer an welchem Unterricht der Klasse teilgenommen hat. */
+  async classAttendance(classId) {
+    return allPages(() => sb.from("lesson_students")
+      .select("student_id, lesson_id, lessons!inner(class_id)")
+      .eq("lessons.class_id", classId)
+      .order("id"));
+  },
+
+  /** Loescht eigene Unterrichte aus vergangenen Schuljahren (Migration 0008;
+   * der Cron-Job erledigt das ohnehin taeglich fuer alle Konten). */
+  async deletePastSchoolYears() {
+    const { error } = await sb.rpc("delete_past_school_years");
+    if (error && !["PGRST202", "42883"].includes(error.code)) console.error(error);
   },
 
   async listFocusClasses() {
@@ -1242,6 +1325,7 @@ const ROUTES = [
   { match: (p) => p[0] === "classes" && p.length === 2, view: (p) => renderClassDetail(p[1]) },
   { match: (p) => p[0] === "lessons" && p[1] === "new", view: () => renderNewLesson() },
   { match: (p) => p[0] === "lessons" && p.length === 2, view: (p) => renderBoard(p[1]) },
+  { match: (p) => p[0] === "lessons" && p[2] === "klasse" && p.length <= 4, view: (p) => renderClassView(p[1], p[3]) },
   { match: (p) => p[0] === "lessons" && p.length === 1, view: () => renderLessonList() },
   { match: (p) => p[0] === "focus" && p.length === 1, view: () => renderFocusHome() },
   { match: (p) => p[0] === "focus" && p[1] === FOCUS_WALK, view: () => renderForestWalk() },
@@ -1260,6 +1344,7 @@ async function router() {
       state.teacher = await ensureTeacher();
       await refreshClassIndex();
       await resumeAfterReload();
+      await api.deletePastSchoolYears();
     } catch (error) {
       showError(error, "Lehrer-Profil konnte nicht geladen werden.");
       return;
@@ -1367,7 +1452,7 @@ async function renderToday() {
     ? `Jetzt laut Stundenplan: ${current.name}.`
     : next ? `Als Nächstes: ${next.name} um ${formatTime(next.from)} Uhr.` : "Was möchtest du tun?";
 
-  const sections = [];
+  const sections = [schoolYearNotice(now)].filter(Boolean);
 
   if (current) {
     const open = running.find((l) => l.class_id === current.classId);
@@ -1759,6 +1844,7 @@ function accountCard() {
     h("p", { class: "muted small" },
       `Angemeldet als ${state.session?.user?.email ?? ""}. Du kannst jederzeit alle deine Daten ` +
       "herunterladen oder dein Konto samt aller Daten löschen."),
+    h("p", { class: "muted small" }, SCHOOL_YEAR_DELETE_INFO),
     h("div", { class: "row" }, exportBtn, deleteBtn));
 }
 
@@ -2290,18 +2376,40 @@ async function renderSeating(classId) {
 }
 
 /* -------------------------------------------------------------------
-   Ansicht: Auswertung einer Klasse
+   Loeschung zum Schuljahresende
+   -------------------------------------------------------------------
+   Unterrichte samt Zustaenden und Zeiten loescht der Server zum
+   31. Juli (Migration 0008, Cron-Job "loesche-vergangene-schuljahre").
    ------------------------------------------------------------------- */
 
-/** Gestapelter Balken der drei Zustaende. */
-function stateBar(totals, { small = false } = {}) {
-  const sum = totals.links + totals.mitte + totals.rechts;
-  const share = (v) => (sum > 0 ? (v / sum) * 100 : 0);
-  return h("div", {
-    class: `stats__bar${small ? " stats__bar--small" : ""}`, role: "img",
-    "aria-label": COLUMNS.map((c) => `${c.title}: ${Math.round(share(totals[c.key]))} Prozent`).join(", ")
-  }, COLUMNS.map((c) => h("div", { class: `stats__seg stats__seg--${c.key}`, style: `width:${share(totals[c.key])}%` })));
+const SCHOOL_YEAR_DELETE_INFO =
+  "Unterrichte werden mit ihren Zeiten zum Ende des Schuljahres am 31. Juli automatisch gelöscht. " +
+  "Klassen, Schülerinnen und Schüler, Sitzplan und Fokus-Wald bleiben erhalten.";
+
+/** Im Juli: Hinweis auf die Loeschung am 1. August, mit Export. */
+function schoolYearNotice(now = new Date()) {
+  if (now.getMonth() !== 6) return null;
+  return h("section", { class: "card hint-card notice-card" },
+    h("div", {},
+      h("h2", {}, "Bald beginnt ein neues Schuljahr"),
+      h("p", { class: "muted" },
+        "Am 1. August werden alle Unterrichte dieses Schuljahres mit ihren Zeiten gelöscht. " +
+        "Klassen, Schülerinnen und Schüler, Sitzplan und Fokus-Wald bleiben. " +
+        "Lade vorher herunter, was du noch brauchst.")),
+    h("button", { class: "btn", type: "button", onclick: exportData }, "Daten exportieren"));
 }
+
+/* -------------------------------------------------------------------
+   Ansicht: Auswertung einer Klasse
+   -------------------------------------------------------------------
+   Gezeigt werden nur die positiven Zeiten ("gut", "großartig"), die Zahl
+   der Unterrichte und der Schnitt je Unterricht. Die Liste ist
+   alphabetisch, eine Rangliste gibt es bewusst nicht.
+   ------------------------------------------------------------------- */
+
+const isPositive = (col) => col === "mitte" || col === "rechts";
+const perLesson = (seconds, lessons) => (lessons > 0 ? seconds / lessons : 0);
+const lessonsLabel = (n) => `${n} ${n === 1 ? "Unterricht" : "Unterrichte"}`;
 
 async function renderClassStats(classId) {
   appEl.className = "app";
@@ -2312,59 +2420,70 @@ async function renderClassStats(classId) {
   if (!cls) { toast("Klasse nicht gefunden.", "error"); return navigate("/classes"); }
   setChrome({ title: `Auswertung ${cls.name}`, back: "/classes", section: "klassen" });
 
-  const [students, rows] = await Promise.all([api.listStudents(classId), api.classTimes(classId)]);
-  const empty = () => ({ links: 0, mitte: 0, rechts: 0, lessons: new Set() });
-  const per = new Map(students.map((st) => [st.id, empty()]));
-  const total = empty();
+  const [students, rows, attendance] = await Promise.all([
+    api.listStudents(classId), api.classTimes(classId), api.classAttendance(classId)]);
+
+  const per = new Map(students.map((st) => [st.id, { mitte: 0, rechts: 0, lessons: 0 }]));
+  for (const row of attendance) {
+    const entry = per.get(row.student_id);
+    if (entry) entry.lessons++;
+  }
   for (const row of rows) {
     const entry = per.get(row.student_id);
-    const seconds = Number(row.seconds) || 0;
-    if (!entry || !(row.col in total)) continue;
-    entry[row.col] += seconds;
-    entry.lessons.add(row.lesson_id);
-    total[row.col] += seconds;
-    total.lessons.add(row.lesson_id);
+    if (entry && isPositive(row.col)) entry[row.col] += Number(row.seconds) || 0;
   }
-  const sum = (t) => t.links + t.mitte + t.rechts;
-  const goodShare = (t) => (sum(t) > 0 ? Math.round(((t.mitte + t.rechts) / sum(t)) * 100) : null);
+  const total = { mitte: 0, rechts: 0, lessons: 0 };
+  for (const entry of per.values()) {
+    total.mitte += entry.mitte;
+    total.rechts += entry.rechts;
+    total.lessons += entry.lessons;
+  }
+  const lessonCount = new Set(attendance.map((row) => row.lesson_id)).size;
+  const minutes = (seconds, lessons) => (lessons ? formatDurationLong(seconds) : "–");
 
   const table = students.length
     ? h("table", { class: "table class-stats" },
         h("thead", {}, h("tr", {},
           h("th", {}, "Name"),
-          h("th", {}, "Verteilung"),
-          h("th", { class: "num" }, "gut oder besser"),
-          h("th", { class: "num" }, "erfasst"))),
+          h("th", { class: "num" }, "gut"),
+          h("th", { class: "num" }, "großartig"),
+          h("th", { class: "num" }, "Unterrichte"),
+          h("th", { class: "num" }, "Ø je Unterricht"))),
         h("tbody", {}, students.map((st) => {
           const t = per.get(st.id);
-          const share = goodShare(t);
           return h("tr", {},
             h("td", {}, h("a", { href: `#/classes/${classId}/students/${st.id}` }, st.name)),
-            h("td", { class: "class-stats__bar" }, sum(t) ? stateBar(t, { small: true }) : h("span", { class: "muted small" }, "–")),
-            h("td", { class: "num" }, share === null ? "–" : `${share} %`),
-            h("td", { class: "num" }, sum(t) ? formatDurationLong(sum(t)) : "–"));
+            h("td", { class: "num" }, minutes(t.mitte, t.lessons)),
+            h("td", { class: "num" }, minutes(t.rechts, t.lessons)),
+            h("td", { class: "num" }, String(t.lessons)),
+            h("td", { class: "num" }, minutes(perLesson(t.mitte + t.rechts, t.lessons), t.lessons)));
         })))
     : emptyView("Noch keine Schülerinnen und Schüler in dieser Klasse.");
 
   appEl.replaceChildren(
     ...classHead(cls, "auswertung", {
-      lead: total.lessons.size
-        ? `Erfasst über ${total.lessons.size} ${total.lessons.size === 1 ? "Unterricht" : "Unterrichte"}.`
-        : "Noch keine Unterrichte erfasst.",
+      lead: lessonCount ? `Erfasst über ${lessonsLabel(lessonCount)}.` : "Noch keine Unterrichte erfasst.",
       canStart: students.length > 0
     }),
     h("div", { class: "stack" },
+      schoolYearNotice(),
       h("div", { class: "card" },
         h("h2", {}, "Ganze Klasse"),
-        stateBar(total),
+        h("p", { class: "muted small" }, "Zeiten im Schnitt je Person und Unterricht."),
         h("div", { class: "stats__grid" },
-          COLUMNS.map((c) => h("div", { class: "stat" },
+          h("div", { class: "stat" },
+            h("div", { class: "stat__label" }, "Unterrichte"),
+            h("div", { class: "stat__value" }, String(lessonCount))),
+          POSITIVE_COLUMNS.map((c) => h("div", { class: `stat stat--${c.key}` },
             h("div", { class: "stat__label" }, c.title),
-            h("div", { class: "stat__value" }, sum(total) ? `${Math.round((total[c.key] / sum(total)) * 100)} %` : "–"))))),
+            h("div", { class: "stat__value" }, minutes(perLesson(total[c.key], total.lessons), total.lessons)))))),
       h("div", { class: "card" },
         h("h2", {}, "Nach Schülerin / Schüler"),
-        h("p", { class: "muted small" }, "Namen anklicken, um die Zeiten je Unterricht zu sehen."),
-        h("div", { class: "table-scroll" }, table))));
+        h("p", { class: "muted small" },
+          "Zeiten in „Du arbeitest gut“ und „Du arbeitest großartig“. Ø je Unterricht zählt beides zusammen. " +
+          "Namen anklicken, um die Zeiten je Unterricht zu sehen."),
+        h("div", { class: "table-scroll" }, table)),
+      h("p", { class: "muted small" }, SCHOOL_YEAR_DELETE_INFO)));
 }
 
 /* -------------------------------------------------------------------
@@ -2380,54 +2499,45 @@ async function renderStudentStats(classId, studentId) {
   if (!student) { toast("Schüler nicht gefunden.", "error"); return navigate(`/classes/${classId}`); }
   setChrome({ title: student.name, back: `/classes/${classId}/stats`, section: "klassen" });
 
-  const rows = await api.studentTimes(studentId);
+  const [rows, attended] = await Promise.all([api.studentTimes(studentId), api.studentLessons(studentId)]);
 
-  const totals = { links: 0, mitte: 0, rechts: 0 };
-  const perLesson = new Map();
+  const perLessonTimes = new Map(attended.map((row) => [row.lesson_id, {
+    name: row.lessons?.name ?? "Unterricht", date: row.lessons?.date ?? null, mitte: 0, rechts: 0
+  }]));
+  const totals = { mitte: 0, rechts: 0 };
   for (const row of rows) {
+    if (!isPositive(row.col)) continue;
     const seconds = Number(row.seconds) || 0;
-    if (row.col in totals) totals[row.col] += seconds;
-    if (!perLesson.has(row.lesson_id)) {
-      perLesson.set(row.lesson_id, {
-        name: row.lesson_name, date: row.lesson_date,
-        links: 0, mitte: 0, rechts: 0
-      });
+    totals[row.col] += seconds;
+    if (!perLessonTimes.has(row.lesson_id)) {
+      perLessonTimes.set(row.lesson_id, { name: row.lesson_name, date: row.lesson_date, mitte: 0, rechts: 0 });
     }
-    const lesson = perLesson.get(row.lesson_id);
-    if (row.col in lesson) lesson[row.col] += seconds;
+    perLessonTimes.get(row.lesson_id)[row.col] += seconds;
   }
 
-  const grandTotal = totals.links + totals.mitte + totals.rechts;
-  const share = (value) => (grandTotal > 0 ? (value / grandTotal) * 100 : 0);
-
-  const bar = h("div", { class: "stats__bar", role: "img",
-    "aria-label": COLUMNS.map((c) => `${c.title}: ${Math.round(share(totals[c.key]))} Prozent`).join(", ") },
-    COLUMNS.map((c) =>
-      h("div", {
-        class: `stats__seg stats__seg--${c.key}`,
-        style: `width:${share(totals[c.key])}%`
-      })));
+  const lessons = [...perLessonTimes.values()]
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const count = lessons.length;
 
   const tiles = h("div", { class: "stats__grid" },
-    COLUMNS.map((c) =>
-      h("div", { class: "stat" },
+    POSITIVE_COLUMNS.map((c) =>
+      h("div", { class: `stat stat--${c.key}` },
         h("div", { class: "stat__label" }, c.title),
-        h("div", { class: "stat__value" }, formatDurationLong(totals[c.key])),
-        h("div", { class: "stat__label" }, `${Math.round(share(totals[c.key]))} %`))));
+        h("div", { class: "stat__value" }, formatDurationLong(totals[c.key])))),
+    h("div", { class: "stat" },
+      h("div", { class: "stat__label" }, "gut oder großartig, Ø je Unterricht"),
+      h("div", { class: "stat__value" }, count ? formatDurationLong(perLesson(totals.mitte + totals.rechts, count)) : "–")));
 
-  const lessons = [...perLesson.values()]
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-
-  const table = lessons.length
+  const table = count
     ? h("table", { class: "table" },
         h("thead", {}, h("tr", {},
           h("th", {}, "Unterricht"),
-          COLUMNS.map((c) => h("th", { class: "num" }, c.title)))),
+          POSITIVE_COLUMNS.map((c) => h("th", { class: "num" }, c.title)))),
         h("tbody", {}, lessons.map((lesson) =>
           h("tr", {},
-            h("td", {}, lesson.name, h("span", { class: "list__sub" }, formatDate(lesson.date))),
-            COLUMNS.map((c) => h("td", { class: "num" }, formatDurationLong(lesson[c.key])))))))
-    : emptyView("Für diese Schülerin / diesen Schüler wurden noch keine Zeiten erfasst.");
+            h("td", {}, lesson.name, lesson.date ? h("span", { class: "list__sub" }, formatDate(lesson.date)) : null),
+            POSITIVE_COLUMNS.map((c) => h("td", { class: "num" }, formatDurationLong(lesson[c.key])))))))
+    : emptyView("Diese Schülerin / dieser Schüler war noch in keinem Unterricht dabei.");
 
   appEl.replaceChildren(
     pageHead({ eyebrow: "Auswertung", title: student.name }),
@@ -2435,14 +2545,12 @@ async function renderStudentStats(classId, studentId) {
     h("div", { class: "stack" },
       h("div", { class: "card" },
         h("h2", {}, "Gesamtzeiten"),
-        h("p", { class: "muted small" },
-          grandTotal > 0
-            ? `Erfasst über ${lessons.length} ${lessons.length === 1 ? "Unterricht" : "Unterrichte"} – insgesamt ${formatDurationLong(grandTotal)}.`
-            : "Noch keine Daten."),
-        bar, tiles),
+        h("p", { class: "muted small" }, count ? `Erfasst über ${lessonsLabel(count)}.` : "Noch keine Daten."),
+        tiles),
       h("div", { class: "card" },
         h("h2", {}, "Nach Unterricht"),
-        h("div", { class: "table-scroll" }, table)))
+        h("div", { class: "table-scroll" }, table)),
+      h("p", { class: "muted small" }, SCHOOL_YEAR_DELETE_INFO))
   );
 }
 
@@ -2612,51 +2720,13 @@ async function renderBoard(lessonId) {
   }
 
   function drawSorted(rows) {
-    const items = [...rows].sort((a, b) =>
-      (a.students?.name ?? "").localeCompare(b.students?.name ?? "", "de"));
-    boardEl.replaceChildren(...items.map((row) => studentTile(row)));
+    boardEl.replaceChildren(...byStudentName(rows).map((row) => studentTile(row)));
     layoutStudentGrid(boardEl);
-    updateStats(rows);
-  }
-
-  function updateStats(rows) {
-    const counts = { links: 0, mitte: 0, rechts: 0 };
-    for (const row of rows) {
-      if (row.col in counts) counts[row.col]++;
-    }
-    statsEl.textContent = COLUMNS
-      .map((c) => {
-        const n = counts[c.key];
-        return `${n} ${n === 1 ? STATE_LABELS[c.key].one : STATE_LABELS[c.key].many}`;
-      })
-      .join(" | ");
+    statsEl.textContent = countsText(stateCounts(rows));
   }
 
   function drawKanban(rows) {
-    const byColumn = { links: [], mitte: [], rechts: [] };
-    for (const row of rows) {
-      if (row.col in byColumn) byColumn[row.col].push(row);
-    }
-    for (const key of Object.keys(byColumn)) {
-      byColumn[key].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    }
-
-    boardEl.replaceChildren(...COLUMNS.map((column) => {
-      const body = h("div", { class: "column__body", dataset: { column: column.key } });
-
-      for (const row of byColumn[column.key]) {
-        body.append(studentCard(row, column.key));
-      }
-      if (!byColumn[column.key].length) {
-        body.append(h("p", { class: "empty small" }, "–"));
-      }
-
-      return h("div", { class: `column column--${column.key}` },
-        h("div", { class: "column__head" },
-          column.title,
-          h("span", { class: "column__count" }, String(byColumn[column.key].length))),
-        body);
-    }));
+    boardEl.replaceChildren(...kanbanColumns(rows, studentCard));
     layoutBoard(boardEl);
   }
 
@@ -2809,14 +2879,192 @@ async function renderBoard(lessonId) {
       h("strong", {}, lesson.classes?.name ?? "Klasse"),
       h("span", { class: "list__sub" }, boardStatus()));
 
-    headerEl.replaceChildren(...(sorted ? [info, statsEl, actions] : [info, actions]));
+    const classView = dropdown({
+      button: h("button", { class: "btn btn--ghost", type: "button" },
+        "Klassenansicht", h("span", { class: "caret", "aria-hidden": "true" })),
+      items: () => [
+        { heading: "Für Beamer oder zweiten Bildschirm" },
+        { label: "Mit Namen", sub: "Alle sehen, wer in welcher Gruppe ist", onSelect: () => openClassView(lessonId, "namen") },
+        { label: "Nur Anzahl", sub: "Wie viele in jeder Gruppe sind, ohne Namen", onSelect: () => openClassView(lessonId, "anzahl") }
+      ]
+    });
+
+    headerEl.replaceChildren(info, ...(sorted ? [statsEl] : []),
+      h("div", { class: "row board-actions" }, classView, actions));
   }
 
   drawHeader();
   await refresh();
 }
 
-/** Minimaler CSS.escape-Ersatz fuer aeltere Browser. */
+/* -------------------------------------------------------------------
+   Ansicht: Klassenansicht (Beamer / zweiter Bildschirm)
+   -------------------------------------------------------------------
+   Zeigt einen Unterricht nur zum Anschauen: alle mit Namen in ihrer
+   Gruppe oder nur die Anzahl je Gruppe. Bedient wird weiter im Board,
+   z. B. auf dem Tablet. Aenderungen kommen live per Supabase Realtime
+   (Migration 0008). Zusaetzlich laedt die Ansicht regelmaessig, nach
+   WLAN-Aussetzern und beim Zurueckkehren in den Tab neu, damit sie auch
+   ohne Realtime stimmt.
+   ------------------------------------------------------------------- */
+
+const CLASS_VIEW_MODES = ["namen", "anzahl"];
+const CLASS_VIEW_POLL_MS = 15000;
+
+function openClassView(lessonId, mode) {
+  const url = `${location.pathname}${location.search}#/lessons/${lessonId}/klasse/${mode}`;
+  // Benanntes Fenster: laesst sich auf den Beamer ziehen, ein zweiter Klick nutzt es wieder.
+  const win = window.open(url, `klassenansicht-${lessonId}`);
+  if (win) win.focus();
+  else toast("Das Fenster wurde blockiert. Bitte Pop-ups für diese Seite erlauben.", "error");
+}
+
+async function renderClassView(lessonId, requestedMode) {
+  const mode = CLASS_VIEW_MODES.includes(requestedMode) ? requestedMode : "namen";
+  appEl.className = "app app--wide class-view";
+  setChrome({ title: "Klassenansicht", back: `/lessons/${lessonId}`, minimal: true });
+  appEl.replaceChildren(loadingView());
+
+  let [lesson, rows] = await Promise.all([api.getLesson(lessonId), api.boardRows(lessonId)]);
+  if (!lesson) { toast("Unterricht nicht gefunden.", "error"); return navigate("/lessons"); }
+  const className = lesson.classes?.name ?? "Klasse";
+  setChrome({ title: `Klassenansicht ${className}`, back: `/lessons/${lessonId}`, minimal: true });
+
+  const sorted = lesson.mode === "sortiert";
+  const counting = mode === "anzahl";
+  const statusEl = h("span", { class: "list__sub" });
+  const summaryEl = h("div", { class: "board-stats" });
+  const bodyEl = h("div", { class: counting ? "count-board" : sorted ? "sorted-grid" : "board" });
+  let offline = false;
+  let alive = true;
+
+  const modeLink = (key, label) => h("a", {
+    class: "chip", href: `#/lessons/${lessonId}/klasse/${key}`, "aria-current": String(key === mode)
+  }, label);
+
+  const fullscreenBtn = document.fullscreenEnabled
+    ? h("button", { class: "btn btn--ghost", type: "button" }, "Vollbild")
+    : null;
+
+  const headerEl = h("div", { class: "card board-header" },
+    h("div", { style: "min-width:0" }, h("strong", {}, className), statusEl),
+    summaryEl,
+    h("div", { class: "row board-actions" },
+      h("div", { class: "chips class-view__modes", role: "group", "aria-label": "Anzeige" },
+        modeLink("namen", "Mit Namen"), modeLink("anzahl", "Nur Anzahl")),
+      fullscreenBtn));
+
+  function layout() {
+    if (counting) {
+      bodyEl.style.height = `${Math.max(BOARD_MIN_HEIGHT_PX,
+        window.innerHeight - bodyEl.getBoundingClientRect().top - BOARD_BOTTOM_MARGIN_PX)}px`;
+    } else if (sorted) {
+      layoutStudentGrid(bodyEl);
+    } else {
+      layoutBoard(bodyEl);
+    }
+  }
+
+  function drawStatus() {
+    const parts = [lesson.ended_at ? "beendet" : "läuft"];
+    if (offline) parts.push("Verbindung unterbrochen, wird erneut versucht …");
+    statusEl.textContent = parts.join(" · ");
+  }
+
+  function draw() {
+    drawStatus();
+    const counts = stateCounts(rows);
+    summaryEl.textContent = sorted && !counting ? countsText(counts) : "";
+    if (counting) {
+      bodyEl.replaceChildren(...COLUMNS.map((c) =>
+        h("div", { class: `count-tile count-tile--${c.key}` },
+          h("div", { class: "count-tile__value" }, String(counts[c.key])),
+          h("div", { class: "count-tile__label" }, c.title))));
+    } else if (sorted) {
+      bodyEl.replaceChildren(...byStudentName(rows).map((row) => staticStudentBox(row)));
+    } else {
+      bodyEl.replaceChildren(...kanbanColumns(rows, staticStudentBox));
+    }
+    layout();
+  }
+
+  // Mehrere Aenderungen kurz hintereinander (z. B. Unterricht beenden)
+  // loesen nur ein Neuladen aus; waehrend eines Ladevorgangs wird eins vorgemerkt.
+  let timer = null;
+  let loading = false;
+  let again = false;
+  const schedule = () => { clearTimeout(timer); timer = setTimeout(refresh, 150); };
+
+  async function refresh() {
+    if (!alive) return;
+    if (loading) { again = true; return; }
+    loading = true;
+    try {
+      const [nextLesson, nextRows] = await Promise.all([api.getLesson(lessonId), api.boardRows(lessonId)]);
+      if (!alive) return;
+      if (!nextLesson) {
+        alive = false;
+        appEl.replaceChildren(emptyView("Dieser Unterricht wurde gelöscht."));
+        return;
+      }
+      lesson = nextLesson;
+      rows = nextRows;
+      offline = false;
+      draw();
+    } catch (error) {
+      console.error(error);
+      if (!alive) return;
+      offline = true;
+      drawStatus();
+    } finally {
+      loading = false;
+      if (again && alive) { again = false; schedule(); }
+    }
+  }
+
+  const channel = sb.channel(`klassenansicht-${lessonId}-${Date.now()}`)
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "lesson_students", filter: `lesson_id=eq.${lessonId}` }, schedule)
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "lessons", filter: `id=eq.${lessonId}` }, schedule)
+    // Auch nach einer Wiederverbindung: verpasste Aenderungen nachladen.
+    .subscribe((status) => { if (status === "SUBSCRIBED") schedule(); });
+
+  const poll = setInterval(schedule, CLASS_VIEW_POLL_MS);
+  const onVisible = () => { if (document.visibilityState === "visible") schedule(); };
+  const onFullscreen = () => {
+    if (fullscreenBtn) fullscreenBtn.textContent = document.fullscreenElement ? "Vollbild beenden" : "Vollbild";
+    layout();
+  };
+  fullscreenBtn?.addEventListener("click", () => {
+    const pending = document.fullscreenElement
+      ? document.exitFullscreen()
+      : document.documentElement.requestFullscreen();
+    pending?.catch?.(() => {});
+  });
+  const resizeObserver = new ResizeObserver(layout);
+  resizeObserver.observe(bodyEl);
+  window.addEventListener("resize", layout);
+  window.addEventListener("online", schedule);
+  document.addEventListener("visibilitychange", onVisible);
+  document.addEventListener("fullscreenchange", onFullscreen);
+  registerCleanup(() => {
+    alive = false;
+    clearTimeout(timer);
+    clearInterval(poll);
+    resizeObserver.disconnect();
+    window.removeEventListener("resize", layout);
+    window.removeEventListener("online", schedule);
+    document.removeEventListener("visibilitychange", onVisible);
+    document.removeEventListener("fullscreenchange", onFullscreen);
+    sb.removeChannel(channel);
+  });
+
+  appEl.replaceChildren(h("div", { class: "stack" }, headerEl, bodyEl));
+  onFullscreen();
+  draw();
+}
+
 /* -------------------------------------------------------------------
    Fokus-Wald: Lautstaerke-Monitor mit Klassenwald
    -------------------------------------------------------------------

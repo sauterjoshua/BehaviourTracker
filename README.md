@@ -28,14 +28,18 @@ BehaviourTracker ist derzeit ein **privates Projekt** (siehe unten): keine
 
 ## Was die Seite macht
 
-BehaviourTracker hilft, das Unterrichtsverhalten von Schülerinnen und
-Schülern sichtbar zu machen. Jede Person hat einen von drei Zuständen:
+BehaviourTracker macht gutes Arbeiten im Unterricht sichtbar. Jede Person
+hat einen von drei Zuständen:
 
-| Zustand | Darstellung |
-| --- | --- |
-| Da geht mehr | neutral grau |
-| Du arbeitest gut | helle Akzentfarbe |
-| Du arbeitest großartig | kräftige Akzentfarbe |
+| Zustand | Darstellung | Zeit wird gespeichert |
+| --- | --- | --- |
+| Start | neutral grau | nein |
+| Du arbeitest gut | helle Akzentfarbe | ja |
+| Du arbeitest großartig | kräftige Akzentfarbe | ja |
+
+„Start“ ist kein Urteil, sondern der Ausgangspunkt: Wer nicht angetippt
+wurde, hat einfach noch keine Rückmeldung bekommen. Deshalb speichert die
+App nur, wie lange jemand „gut“ oder „großartig“ gearbeitet hat.
 
 Die Farben hängen von der gewählten **Farbwelt** ab: Standard ist
 *Salbei* (gedämpftes Waldgrün), unter **Konto-Menü → Einstellungen** lassen
@@ -44,22 +48,26 @@ wird im Konto gespeichert und gilt auf allen Geräten.
 
 Beim Start eines Unterrichts wählt man eine von zwei Ansichten:
 
-- **Kanban** – drei Spalten, alle Schüler starten links in „Da geht mehr“
+- **Kanban** – drei Spalten, alle Schüler starten links in „Start“
   und werden per **Drag & Drop** in die jeweils benachbarte Spalte
   verschoben – mit Maus, Touch oder Stift.
 - **Sortierte Ansicht** – alle Schüler alphabetisch in einem Raster.
   Antippen der **linken** Boxhälfte schaltet einen Zustand zurück, die
   **rechte** Hälfte einen vor; die Position im Raster bleibt dabei fest,
   nur die Farbe wechselt. Im Header läuft eine Live-Zählung mit, z. B.
-  „2 können mehr | 5 arbeiten gut | 1 arbeitet großartig“.
+  „12 am Start | 5 arbeiten gut | 1 arbeitet großartig“.
 
 Beide Ansichten sind nur unterschiedliche Darstellungen derselben Daten –
-die App misst in beiden automatisch, **wie lange** jede Person in
-welchem Zustand war, und die Auswertung macht keinen Unterschied
+die App misst in beiden automatisch, **wie lange** jede Person „gut“ oder
+„großartig“ gearbeitet hat, und die Auswertung macht keinen Unterschied
 zwischen ihnen.
 
-- Unter **Klasse → Auswertung** steht die Verteilung der ganzen Klasse und
-  jeder Person; ein Name führt zu den Zeiten je Unterricht.
+- Unter **Klasse → Auswertung** stehen je Person die Zeiten in „gut“ und
+  „großartig“, die Zahl der Unterrichte und der Schnitt je Unterricht,
+  alphabetisch sortiert – eine Rangliste gibt es bewusst nicht. Ein Name
+  führt zu den Zeiten je Unterricht.
+- Unterrichte werden mit ihren Zeiten **zum Schuljahresende** automatisch
+  gelöscht (siehe unten).
 
 Kurzablauf im Unterricht:
 
@@ -71,6 +79,50 @@ Kurzablauf im Unterricht:
 4. Am Ende **Unterricht beenden**, um die Zeitmessung zu stoppen – oder er
    endet automatisch (siehe unten).
 5. Auswertung unter **Klassen** → Klasse → **Auswertung**.
+
+---
+
+## Klassenansicht (Beamer)
+
+Im laufenden Unterricht oben **Klassenansicht** wählen:
+
+- **Mit Namen** – alle sehen, wer gerade in welcher Gruppe ist (wie im
+  Board, nur ohne Bedienung).
+- **Nur Anzahl** – drei große Zahlen, wie viele in jeder Gruppe sind,
+  ohne Namen.
+
+Die Klassenansicht öffnet sich in einem eigenen Fenster, das man auf den
+Beamer zieht (Bildschirm *erweitern*, nicht *spiegeln*) und mit
+**Vollbild** groß macht. Bedient wird weiter im Board, z. B. auf dem
+Tablet. Alternativ öffnet man auf dem Rechner am Beamer denselben
+Unterricht und dort die Klassenansicht. Oben lässt sich jederzeit zwischen
+„Mit Namen“ und „Nur Anzahl“ wechseln.
+
+Änderungen kommen live an (Supabase Realtime). Zusätzlich lädt die Ansicht
+alle 15 Sekunden, nach WLAN-Aussetzern und beim Zurückkehren in den Tab
+neu; ist die Verbindung weg, steht das oben im Status.
+
+Wird das Gerät nur gespiegelt, sieht die Klasse genau das, was die
+Lehrkraft sieht – „Nur Anzahl“ braucht deshalb einen zweiten Bildschirm.
+
+---
+
+## Löschung zum Schuljahresende
+
+Am **1. August** werden alle Unterrichte des abgelaufenen Schuljahres mit
+ihren Zuständen und Zeiten gelöscht. Klassen, Schüler, Sitzplan und
+Fokus-Wald bleiben. Das erledigt ein täglicher Job in der Datenbank
+(`pg_cron`, Job `loesche-vergangene-schuljahre`); zusätzlich räumt die App
+beim Anmelden die eigenen alten Unterrichte auf. Im Juli erinnert ein
+Hinweis auf **Heute** und in der **Auswertung** daran, vorher zu
+exportieren. Die Regel steht auch in der Auswertung, unter
+**Einstellungen → Konto & Daten**, in der Datenschutzerklärung und in
+§ 5 der Nutzungsbedingungen.
+
+Einmalig muss dafür `supabase/migrations/0008_positive_only_and_yearly_purge.sql`
+im Supabase SQL-Editor ausgeführt werden. Sie löscht dabei auch die bisher
+gespeicherten Zeiten im Startzustand und schaltet Realtime für die
+Klassenansicht ein.
 
 ---
 

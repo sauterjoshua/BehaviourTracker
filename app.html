@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <!-- Skripte nur von hier, Netzwerk nur zu Supabase. Wird hCaptcha aktiviert, hier https://js.hcaptcha.com bzw. https://*.hcaptcha.com bei script-src, frame-src, style-src und connect-src ergaenzen. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://*.supabase.co; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self'">
+  <!-- Skripte nur von hier, Netzwerk nur zu Supabase (wss: Live-Updates der Klassenansicht). Wird hCaptcha aktiviert, hier https://js.hcaptcha.com bzw. https://*.hcaptcha.com bei script-src, frame-src, style-src und connect-src ergaenzen. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; media-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="description" content="BehaviourTracker – Klassen, Unterrichte und Fokus-Wald.">
   <meta name="robots" content="noindex">
   <title>BehaviourTracker</title>

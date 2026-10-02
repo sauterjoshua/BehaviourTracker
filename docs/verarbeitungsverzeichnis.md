@@ -4,7 +4,7 @@ Internes Dokument des Betreibers. Muss nicht veröffentlicht werden, ist aber
 der Aufsichtsbehörde auf Anfrage vorzulegen. Bei Änderungen an App, Diensten
 oder Datenschutzerklärung mit anpassen.
 
-- **Stand:** 1. Oktober 2026
+- **Stand:** 2. Oktober 2026
 - **Verantwortlicher / Auftragsverarbeiter:** [wird ergänzt], [wird ergänzt], [wird ergänzt], [wird ergänzt]
 - **Datenschutzbeauftragter:** nicht benannt (keine Pflicht nach Art. 37 DSGVO / § 38 BDSG)
 
@@ -56,9 +56,10 @@ oder Datenschutzerklärung mit anpassen.
 | Verantwortliche | Schulen, an denen registrierte Lehrkräfte die App einsetzen (Schulen, die die AV-Vereinbarung unterzeichnet angefordert haben, hier eintragen) |
 | Kategorien der Verarbeitung | Speichern, Anzeigen, Auswerten und Löschen von Klassen-, Schüler-, Unterrichts- und Fokus-Wald-Daten |
 | Betroffene | Schülerinnen und Schüler; Lehrkräfte |
-| Daten | Namen/Kürzel, Klassenzugehörigkeit, Sitzplatz, Zustände mit Zeitstempeln, Zeiten, Unterrichtsdaten (inkl. automatischem Endzeitpunkt), Fokus-Wald-Ergebnisse, Belohnungstexte, Stundenplan der Lehrkraft (Stundenzeiten, Zuordnung Klasse–Wochentag–Stunde) |
+| Daten | Namen/Kürzel, Klassenzugehörigkeit, Sitzplatz, aktueller Zustand im Unterricht, Zeiten in „gut“/„großartig“ mit Zeitstempeln (die Dauer im Startzustand wird nicht gespeichert), Unterrichtsdaten (inkl. automatischem Endzeitpunkt), Fokus-Wald-Ergebnisse, Belohnungstexte, Stundenplan der Lehrkraft (Stundenzeiten, Zuordnung Klasse–Wochentag–Stunde) |
 | Unterauftragsverarbeiter | Supabase Pte. Ltd., Singapur – Rechenzentrum in der EU, DPA mit SCC |
 | Drittland | siehe A2 |
+| Löschung | Unterrichte samt Zuständen und Zeiten am 1. August für das abgelaufene Schuljahr (pg_cron-Job `loesche-vergangene-schuljahre`, Funktion `delete_past_school_years`, `supabase/migrations/0008_positive_only_and_yearly_purge.sql`); alles Übrige bei Löschung durch die Lehrkraft oder mit dem Konto |
 | Vertrag | § 5 der Nutzungsbedingungen (`nutzungsbedingungen.html`) |
 
 ---
@@ -74,3 +75,5 @@ oder Datenschutzerklärung mit anpassen.
 - Mikrofon: Lautstärke nur lokal im Browser, keine Aufnahme, keine Übertragung
 - Zwei-Faktor-Authentifizierung für die Konten bei Supabase, GitHub und Netlify
 - Löschfunktion und Datenexport für Nutzerinnen und Nutzer in der App
+- Datensparsamkeit: nur Zeiten in „gut“/„großartig“ werden gespeichert; Unterrichtsdaten werden zum Schuljahresende automatisch gelöscht
+- Klassenansicht: Live-Updates über eine verschlüsselte WebSocket-Verbindung zu Supabase, Row Level Security gilt auch dort

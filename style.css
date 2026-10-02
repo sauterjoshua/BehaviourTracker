@@ -23,7 +23,7 @@
   --danger:        #c9372c;
 
   /* Farbwelt "Salbei" (Standard): Akzent, Zustandsfarben der Spalten bzw.
-     Kacheln (links = "Da geht mehr", mitte = "gut", rechts = "grossartig")
+     Kacheln (links = "Start", mitte = "gut", rechts = "grossartig")
      und Logo. Weitere Farbwelten weiter unten; per Konto waehlbar
      (Einstellungen in der App, data-palette am <html>). */
   --accent:               #39644d;
@@ -615,6 +615,11 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
   .board-header > :last-child { justify-self: stretch; }
 }
 
+.board-actions { justify-content: flex-end; }
+@media (max-width: 759px) {
+  .board-actions { justify-content: flex-start; }
+}
+
 .board-stats {
   justify-self: center;
   text-align: center;
@@ -641,7 +646,7 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
 .auth__home { display: block; margin-top: 1.5rem; text-align: center; font-size: .875rem; color: var(--text-muted); text-decoration: none; transition: color var(--t); }
 .auth__home:hover { color: var(--text); }
 
-/* Logo: drei Balken in den Zustandsfarben ("Da geht mehr" -> "grossartig") */
+/* Logo: drei Balken in den Zustandsfarben ("Start" -> "grossartig") */
 .brand-mark { display: block; flex: none; }
 .brand-mark__a { fill: var(--col-links-head); opacity: .45; }
 .brand-mark__b { fill: var(--logo-mid); }
@@ -901,8 +906,6 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
 
 /* ---------------- Auswertung Klasse ---------------- */
 
-.stats__bar--small { height: .5rem; margin: 0; min-width: 8rem; }
-.class-stats__bar { width: 45%; }
 .class-stats a { color: var(--text); font-weight: 600; text-decoration: none; }
 .class-stats a:hover { color: var(--accent); }
 
@@ -978,6 +981,45 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
 .sorted-grid .student[data-column="mitte"]  { background: var(--col-mitte-bg); }
 .sorted-grid .student[data-column="rechts"] { background: var(--col-rechts-bg); }
 
+/* ---------------- Klassenansicht ---------------- */
+/* Nur zum Anschauen (Beamer): keine Bedienung, daher kein Zeiger. */
+.class-view .student,
+.class-view .sorted-grid .student { cursor: default; }
+.class-view__modes { flex: none; overflow: visible; }
+
+.count-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+@media (max-width: 760px) {
+  .count-board { grid-template-columns: 1fr; }
+}
+.count-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--col-links-bg);
+  color: var(--col-links-head);
+  text-align: center;
+}
+.count-tile--mitte  { background: var(--col-mitte-bg);  color: var(--col-mitte-head); }
+.count-tile--rechts { background: var(--col-rechts-bg); color: var(--col-rechts-head); }
+.count-tile__value {
+  font-size: clamp(3.5rem, 16vmin, 14rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.count-tile__label { font-size: clamp(1rem, 3.2vmin, 2.25rem); font-weight: 700; }
+
 .student {
   display: flex;
   flex-direction: column;
@@ -1025,18 +1067,6 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
 
 /* ---------------- Auswertung ---------------- */
 
-.stats__bar {
-  display: flex;
-  height: .75rem;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--surface-2);
-  margin: .5rem 0 .9rem;
-}
-.stats__seg--links  { background: var(--col-links-head); }
-.stats__seg--mitte  { background: var(--col-mitte-head); }
-.stats__seg--rechts { background: var(--col-rechts-head); }
-
 .stats__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
@@ -1052,6 +1082,10 @@ button, a, .student, .seat, .goal { -webkit-tap-highlight-color: transparent; to
   background: var(--surface-2);
 }
 .stat__label { font-size: .875rem; color: var(--text-muted); }
+.stat--mitte  { background: var(--col-mitte-bg); border-color: transparent; }
+.stat--rechts { background: var(--col-rechts-bg); border-color: transparent; }
+.stat--mitte  .stat__label { color: var(--col-mitte-head); }
+.stat--rechts .stat__label { color: var(--col-rechts-head); }
 .stat__value { order: -1; font-size: 1.75rem; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 
 .table { width: 100%; border-collapse: collapse; font-size: .9rem; }
