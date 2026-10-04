@@ -83,13 +83,20 @@ zwischen ihnen.
 - Unter **Klasse → Auswertung** stehen je Person die Zeiten in „gut“ und
   „großartig“, die Zahl der Unterrichte und der Schnitt je Unterricht,
   alphabetisch sortiert – eine Rangliste gibt es bewusst nicht. Ein Name
-  führt zu den Zeiten je Unterricht.
+  führt zu den Zeiten je Unterricht. Ein Unterricht zählt für eine Person,
+  wenn sie dabei war (siehe „Wer ist da?“).
+- **Exportieren** (Auswertung, Karte „Nach Schülerin / Schüler“): Übersicht
+  als **PDF** oder **CSV** (Excel: Semikolon, Minuten mit Dezimalkomma) und
+  alle Unterrichte als CSV, eine Zeile je Person und Unterricht. Auf der
+  Seite einer Person gibt es dasselbe für sie allein. Die Dateien entstehen
+  im Browser (`import-export.js`, PDF ohne fremde Bibliothek).
 - Unterrichte werden mit ihren Zeiten **zum Schuljahresende** automatisch
   gelöscht (siehe unten).
 
 Kurzablauf im Unterricht:
 
-1. **Klassen** → Klasse anlegen → Schüler eintragen.
+1. **Klassen** → Klasse anlegen → Schüler eintragen oder die
+   **Klassenliste importieren** (siehe unten).
 2. **Unterrichte** → *Unterricht starten* → Klasse wählen → Ansicht wählen
    (Kanban oder Sortiert).
 3. Während der Stunde je nach Verhalten verschieben (Kanban) bzw. antippen
@@ -97,6 +104,35 @@ Kurzablauf im Unterricht:
 4. Am Ende **Unterricht beenden**, um die Zeitmessung zu stoppen – oder er
    endet automatisch (siehe unten).
 5. Auswertung unter **Klassen** → Klasse → **Auswertung**.
+
+### Wer ist da?
+
+Im laufenden Unterricht oben **Wer ist da?** (mit Zähler, z. B. „23/25“).
+Wer fehlt, wird angetippt und aus dem Unterricht genommen: Die Person
+sammelt keine Zeit und der Unterricht zählt für sie in der Auswertung nicht
+mit. Eine Abwesenheit wird **nicht gespeichert** – die Person steht dann
+einfach nicht in diesem Unterricht. Schon gesammelte Zeit bleibt, z. B.
+wenn jemand früher geht. Wer später kommt, wird wieder angetippt und
+startet im Startzustand. Auch wer erst nach dem Start in die Klasse
+eingetragen wurde, lässt sich so dazunehmen.
+
+### Schlechtes WLAN
+
+Antippen und Verschieben wirken sofort. Die Änderungen gehen über eine
+Warteschlange (localStorage, nur IDs, Zustand und Zeitpunkt, keine Namen)
+an den Server; ist die Verbindung weg, steht im Board „Keine Verbindung ·
+2 Änderungen warten“, und die App sendet nach, sobald das WLAN wieder da
+ist – auch nach dem Neuladen der Seite. Der Server trägt dabei den
+Zeitpunkt des Antippens ein, nicht den des Nachsendens (höchstens
+15 Minuten zurück). Gemessen wird nur, wie lange die Änderung schon
+zurückliegt, deshalb spielt eine falsch gehende Geräteuhr keine Rolle.
+Genauso werden im Fokus-Wald gepflanzte Bäume nachgesendet. Beenden lässt
+sich ein Unterricht erst, wenn alles übertragen ist.
+
+Für „Wer ist da?“ und die genauen Zeiten beim Nachsenden muss einmalig
+`supabase/migrations/0009_presence_and_offline.sql` im Supabase SQL-Editor
+ausgeführt werden (setzt 0008 voraus). Ohne sie funktioniert das Nachsenden
+trotzdem, nur mit dem Zeitpunkt des Nachsendens.
 
 ---
 
@@ -175,6 +211,48 @@ abgeschlossen, und die Auswertung zählt ohnehin nur bis dahin.
 
 Einmalig muss dafür `supabase/migrations/0007_schedule_autoend.sql` im
 Supabase SQL-Editor ausgeführt werden.
+
+### Stundenplan importieren
+
+**Einstellungen → Stundenplan importieren**: eine iCal-Datei (`.ics`) aus
+WebUntis (eigenen Stundenplan einer Woche exportieren) oder aus einem
+Kalender auswählen. Die App
+
+- leitet die **Stundenzeiten** ab (Doppelstunden werden geteilt; Stunden,
+  in denen man nie unterrichtet, werden vormittags aus den Lücken
+  geschätzt und als „geschätzt“ markiert) – wer schon Stundenzeiten
+  eingetragen hat, kann sie behalten,
+- sortiert die Termine nach **Klassen**: Steht der Name einer vorhandenen
+  Klasse im Termin, gilt sie; eine erkennbare Bezeichnung wie „8a“ oder
+  „Q1“ wird als neue Klasse vorgeschlagen; Termine ohne Klasse
+  (Aufsichten, Konferenzen) bleiben weg. Jede Zuordnung lässt sich ändern,
+- zeigt die Woche zur Kontrolle und ersetzt erst nach **Übernehmen** den
+  Wochenplan. Bei A-/B-Wochen gewinnt die häufigere Klasse.
+
+Gelesen wird die Datei nur im Browser; gespeichert werden nur
+Stundenzeiten und Wochenplan, keine Fächer, Räume oder Namen.
+
+---
+
+## Klassenliste importieren
+
+Unter **Klassen** → Klasse → **Klassenliste importieren**: eine Datei
+(CSV, Excel `.xlsx`, Text – z. B. die Schülerliste aus Untis/WebUntis)
+auswählen oder Namen einfügen (etwa aus Excel kopiert).
+
+- Spalten werden erkannt (Vorname/Rufname, Nachname/Familienname, Name,
+  „Nachname, Vorname“, Klasse) und lassen sich in der Vorschau umstellen.
+  Enthält die Datei mehrere Klassen, wählt man eine aus; passt eine zum
+  Namen der Klasse in der App, ist sie vorgewählt.
+- Gespeichert werden **nur Vornamen**. Gibt es einen Vornamen mehrfach,
+  kommt der kürzeste eindeutige Anfang des Nachnamens dazu: „Lea M.“ und
+  „Lea S.“, bei Müller und Maier „Lea Mü.“ und „Lea Ma.“.
+- Namen, die es in der Klasse schon gibt, werden übersprungen. Höchstens
+  60 neue Namen auf einmal.
+- Nachnamen und alle anderen Angaben aus der Datei (z. B. Geburtsdaten)
+  bleiben im Browser und werden nicht übertragen.
+
+Ältere Excel-Dateien (`.xls`) bitte als `.xlsx` oder `.csv` speichern.
 
 ---
 

@@ -621,6 +621,37 @@ textarea.input { min-height: 10rem; resize: vertical; line-height: 1.5; }
   .board-actions { justify-content: flex-start; }
 }
 
+/* Warteschlange bei schlechtem WLAN */
+.sync-status { display: block; margin-top: 2px; font-size: .8125rem; color: var(--text-muted); }
+.sync-status--offline { color: var(--danger); font-weight: 600; }
+
+/* "Wer ist da?" */
+.modal__panel--wide { width: min(46rem, 100%); }
+.presence__summary { margin: 0; font-weight: 600; }
+.presence__grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); }
+.presence__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 3.25rem;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--t), border-color var(--t), color var(--t);
+}
+.presence__item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.presence__name { font-weight: 600; overflow-wrap: anywhere; }
+.presence__state { font-size: .75rem; color: var(--accent); font-weight: 600; }
+.presence__item[aria-pressed="false"] { border-style: dashed; border-color: var(--border); background: var(--surface-2); color: var(--text-muted); }
+.presence__item[aria-pressed="false"] .presence__name { font-weight: 500; }
+.presence__item[aria-pressed="false"] .presence__state { color: var(--text-muted); }
+
 .board-stats {
   justify-self: center;
   text-align: center;
@@ -924,6 +955,30 @@ textarea.input { min-height: 10rem; resize: vertical; line-height: 1.5; }
 .class-stats a { color: var(--text); font-weight: 600; text-decoration: none; }
 .class-stats a:hover { color: var(--accent); }
 
+/* Kartenkopf mit Ueberschrift und Aktion (z. B. "Exportieren") */
+.card__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 8px; }
+.card__head h2 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+
+/* ---------------- Import ---------------- */
+
+.import-fields { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); align-items: end; margin-top: 16px; }
+.name-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 16px 0; padding: 0; }
+.name-list li {
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: .9375rem;
+  font-weight: 500;
+}
+.name-list li.is-existing { border-color: var(--border); background: transparent; color: var(--text-muted); font-weight: 400; }
+.name-list__note { margin-left: 6px; font-size: .75rem; }
+.import-groups .list__item { flex-wrap: wrap; }
+.import-groups__text { flex: 1 1 14rem; min-width: 0; }
+.import-groups__select { flex: 0 1 16rem; width: auto; }
+.week--preview td { padding: 6px 8px; min-height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: .9375rem; }
+.week--preview td.is-set { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); font-weight: 600; }
+
 /* ---------------- Board ---------------- */
 
 .board {
@@ -1070,7 +1125,6 @@ textarea.input { min-height: 10rem; resize: vertical; line-height: 1.5; }
   box-shadow: var(--shadow-lg);
   border-color: var(--accent);
 }
-.student--busy { opacity: .6; pointer-events: none; }
 
 .student__name {
   max-width: 100%;

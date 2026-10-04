@@ -12,6 +12,10 @@
 
 // Lokal gebuendelt statt von esm.sh geladen: kein Fremd-CDN, keine IP-Weitergabe.
 import { createClient } from "./vendor/supabase-js-2.45.4.mjs";
+import {
+  readTableFile, parseDelimited, detectLayout, classValues, matchClassValue, extractPeople, shortNames,
+  parseIcs, deriveTimes, groupEvents, buildSlots, toCsv, csvMinutes, buildPdf, MAX_IMPORT_BYTES
+} from "./import-export.js";
 
 const appEl = document.getElementById("app");
 const topbarEl = document.getElementById("topbar");
@@ -139,11 +143,34 @@ function toast(message, kind = "info") {
   toastTimer = setTimeout(() => { toastEl.hidden = true; }, kind === "error" ? 6000 : 3000);
 }
 
+/** Meldungen des Browsers bei fehlender Verbindung (Chrome, Firefox, Safari, Zeitueberschreitung). */
+const NETWORK_ERROR = /Failed to fetch|NetworkError|Load failed|network connection|AbortError|TimeoutError/i;
+
 function showError(error, fallback = "Es ist ein Fehler aufgetreten.") {
-  const message = (error && (error.message || error.error_description)) || fallback;
+  let message = (error && (error.message || error.error_description)) || fallback;
+  if (NETWORK_ERROR.test(message)) message = "Keine Verbindung zum Server. Bitte WLAN prüfen und es noch einmal versuchen.";
   console.error(error);
   toast(message, "error");
 }
+
+/** Bietet Daten als Datei zum Herunterladen an. */
+function downloadFile(fileName, data, type) {
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  const link = h("a", { href: url, download: fileName });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Dateiname aus Text: "Auswertung 7b" -> "auswertung-7b". */
+const fileSlug = (text) => String(text).toLocaleLowerCase("de")
+  .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+  .normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "export";
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 function loadingView(text = "Wird geladen…") {
   return h("div", { class: "loading" }, text);
@@ -751,6 +778,17 @@ const remoteApi = {
     return unwrap(await sb.from("students").delete().eq("id", id));
   },
 
+  /** Mehrere Namen auf einmal (Import einer Klassenliste). */
+  async createStudents(classId, names) {
+    return unwrap(await sb.from("students")
+      .insert(names.map((name) => ({ class_id: classId, name }))).select("id"));
+  },
+
+  /** Alle Schueler der Klasse eines Unterrichts (auch wer gerade nicht dabei ist). */
+  async lessonRoster(lessonId, classId) {
+    return api.listStudents(classId);
+  },
+
   async listSeats(classId) {
     return unwrap(await sb.from("students")
       .select("id, name, seat_x, seat_y, seat_rot").eq("class_id", classId).order("name"));
@@ -852,7 +890,7 @@ const remoteApi = {
   /** Zeiten aller Schueler einer Klasse, je Unterricht und Spalte. */
   async classTimes(classId) {
     return allPages(() => sb.from("student_lesson_column_seconds")
-      .select("student_id, lesson_id, col:column, seconds")
+      .select("student_id, lesson_id, lesson_name, lesson_date, col:column, seconds")
       .eq("class_id", classId)
       .order("lesson_id").order("student_id").order("column"));
   },
@@ -860,7 +898,7 @@ const remoteApi = {
   /** Wer an welchem Unterricht der Klasse teilgenommen hat. */
   async classAttendance(classId) {
     return allPages(() => sb.from("lesson_students")
-      .select("student_id, lesson_id, lessons!inner(class_id)")
+      .select("student_id, lesson_id, lessons!inner(class_id, name, date)")
       .eq("lessons.class_id", classId)
       .order("id"));
   },
@@ -873,15 +911,17 @@ const remoteApi = {
   },
 
   async listFocusClasses() {
-    return unwrap(await sb.from("classes")
+    const classes = unwrap(await sb.from("classes")
       .select("id, name, focus_reward, focus_reward_goal, focus_reward_offset, focus_trees(id, goal_seconds, created_at)")
       .order("name"));
-  },
-
-  async plantTree(classId, goalSeconds) {
-    return unwrap(await sb.from("focus_trees")
-      .insert({ class_id: classId, goal_seconds: goalSeconds })
-      .select("id, goal_seconds, created_at").single());
+    // Gepflanzt, aber wegen schlechten WLANs noch nicht uebertragen: schon mitzaehlen.
+    for (const op of queue.ops.filter((o) => o.kind === "tree")) {
+      const cls = classes.find((c) => c.id === op.classId);
+      if (cls && !cls.focus_trees.some((t) => t.id === op.treeId)) {
+        cls.focus_trees.push({ id: op.treeId, goal_seconds: op.seconds, created_at: new Date(op.at).toISOString() });
+      }
+    }
+    return classes;
   },
 
   async updateFocusReward(classId, fields) {
@@ -1024,14 +1064,17 @@ function deleteGuestClass(classId) {
 function startGuestLesson(className, names, mode) {
   const id = guestId();
   const now = new Date().toISOString();
+  // Alle eingetippten Namen; wer fehlt, steht nur hier und nicht in rows.
+  const roster = names.map((name) => ({ id: guestId(), name }));
   guestLessons.set(id, {
     lesson: {
       id, name: `${className} (Probe)`, date: now.slice(0, 10), ended_at: null, created_at: now,
       class_id: null, mode, classes: { name: className }
     },
-    rows: names.map((name, i) => ({
-      id: guestId(), col: "links", position: i + 1, student_id: guestId(), students: { name }
+    rows: roster.map((s, i) => ({
+      id: guestId(), col: "links", position: i + 1, student_id: s.id, students: { name: s.name }
     })),
+    roster,
     // Wie column_time_logs: nur positive Zustaende.
     logs: []
   });
@@ -1055,13 +1098,18 @@ const closeGuestLogs = (entry, studentId = null) => {
 function guestLessonTimes(lessonId) {
   const entry = guestLesson(lessonId);
   const now = Date.now();
-  return byStudentName(entry.rows).map((row) => {
-    const times = { name: row.students.name, mitte: 0, rechts: 0 };
-    for (const log of entry.logs) {
-      if (log.student_id === row.student_id) times[log.col] += ((log.ended_at ?? now) - log.started_at) / 1000;
-    }
-    return times;
-  });
+  const present = new Set(entry.rows.map((r) => r.student_id));
+  // Wer fehlt, steht nicht in der Liste – ausser er hat vorher schon Zeit gesammelt.
+  return entry.roster
+    .map((student) => {
+      const times = { id: student.id, name: student.name, mitte: 0, rechts: 0 };
+      for (const log of entry.logs) {
+        if (log.student_id === student.id) times[log.col] += ((log.ended_at ?? now) - log.started_at) / 1000;
+      }
+      return times;
+    })
+    .filter((t) => present.has(t.id) || t.mitte + t.rechts > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
 }
 
 const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -1109,6 +1157,24 @@ const guestApi = {
     row.col = column;
   },
 
+  async lessonRoster(lessonId) {
+    return copy(guestLesson(lessonId).roster);
+  },
+
+  async setPresence(lessonId, studentId, present) {
+    const entry = guestLesson(lessonId);
+    const index = entry.rows.findIndex((r) => r.student_id === studentId);
+    if (!present && index >= 0) {
+      closeGuestLogs(entry, studentId);
+      entry.rows.splice(index, 1);
+    } else if (present && index < 0) {
+      const student = entry.roster.find((s) => s.id === studentId);
+      if (!student) throw new Error("Diese Person gehört nicht zu diesem Unterricht.");
+      const position = Math.max(0, ...entry.rows.filter((r) => r.col === "links").map((r) => r.position)) + 1;
+      entry.rows.push({ id: guestId(), col: "links", position, student_id: studentId, students: { name: student.name } });
+    }
+  },
+
   async endLesson(lessonId) {
     const entry = guestLesson(lessonId);
     closeGuestLogs(entry);
@@ -1138,6 +1204,203 @@ const api = new Proxy(remoteApi, {
 });
 
 const lessonExtra = () => (state.scheduleAvailable ? ", auto_end_at" : "");
+
+/* -------------------------------------------------------------------
+   Schlechtes WLAN: Warteschlange fuer Aenderungen
+   -------------------------------------------------------------------
+   Verschieben, "Wer ist da?" und gepflanzte Baeume wirken sofort in der
+   Ansicht und kommen in eine Warteschlange im localStorage. Sie wird der
+   Reihe nach an Supabase geschickt; ist die Verbindung weg, versucht die
+   App es spaeter erneut – auch nach dem Neuladen der Seite. Mit
+   p_delay_ms (Migration 0009) traegt der Server den Zeitpunkt der
+   Aenderung ein, nicht den des Nachsendens. Alle Aufrufe sind so gebaut,
+   dass ein doppelt gesendeter nichts kaputt macht. Gespeichert werden nur
+   IDs, Zustand und Zeitpunkt, keine Namen.
+   ------------------------------------------------------------------- */
+
+const QUEUE_KEY = "bt.warteschlange";
+const QUEUE_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+const QUEUE_TIMEOUT_MS = 10000;
+const QUEUE_RETRY_MS = [2000, 5000, 10000, 20000, 30000];
+const QUEUE_KINDS = ["move", "presence", "tree"];
+
+const queue = {
+  ops: [],
+  sending: false,
+  offline: false,
+  retries: 0,
+  timer: null,
+  listeners: new Set(),
+  // false, solange Migration 0009 fehlt: dann ohne Zeitkorrektur.
+  delaySupported: true
+};
+
+const queueUser = () => state.session?.user?.id ?? null;
+const queueFresh = (op) => op && Date.now() - op.at < QUEUE_MAX_AGE_MS;
+
+function storedQueue() {
+  const all = readPref(QUEUE_KEY, []);
+  return Array.isArray(all) ? all.filter(queueFresh) : [];
+}
+
+/** Aenderungen des angemeldeten Kontos laden (nach Anmeldung oder Neuladen). */
+function loadQueue() {
+  const user = queueUser();
+  queue.ops = storedQueue().filter((op) => op.user === user && QUEUE_KINDS.includes(op.kind));
+  queue.offline = false;
+  queue.retries = 0;
+}
+
+function saveQueue() {
+  const user = queueUser();
+  const all = [...storedQueue().filter((op) => op.user !== user), ...queue.ops];
+  try {
+    if (all.length) localStorage.setItem(QUEUE_KEY, JSON.stringify(all));
+    else localStorage.removeItem(QUEUE_KEY);
+  } catch { /* ohne Speicher bleibt die Warteschlange nur im Tab */ }
+}
+
+function clearQueue() {
+  queue.ops = [];
+  saveQueue();
+  clearTimeout(queue.timer);
+  queue.offline = false;
+}
+
+function notifyQueue(event = {}) {
+  for (const fn of queue.listeners) {
+    try { fn(event); } catch (error) { console.error(error); }
+  }
+}
+
+/** Beobachtet die Warteschlange, solange die aktuelle Ansicht offen ist. */
+function onQueue(fn) {
+  queue.listeners.add(fn);
+  registerCleanup(() => queue.listeners.delete(fn));
+}
+
+const pendingFor = (lessonId) => queue.ops.filter((op) => op.lessonId === lessonId);
+
+function enqueue(op) {
+  queue.ops.push({ ...op, user: queueUser(), at: Date.now() });
+  saveQueue();
+  notifyQueue();
+  flushQueue();
+}
+
+/** UUID auch dort, wo crypto.randomUUID fehlt (aeltere Browser). */
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Keine Verbindung, Zeitueberschreitung, Server ueberlastet, Anmeldung
+ * abgelaufen: spaeter noch einmal versuchen. Alles andere ist endgueltig. */
+const isTransient = ({ error, status }) =>
+  status === 0 || status === 401 || status === 408 || status === 429 || status >= 500 || error?.code === "PGRST301";
+
+async function sendOp(op) {
+  const delay = Math.max(0, Date.now() - op.at);
+  const limited = (request) =>
+    (typeof AbortSignal.timeout === "function" ? request.abortSignal(AbortSignal.timeout(QUEUE_TIMEOUT_MS)) : request);
+
+  if (op.kind === "tree") {
+    // Feste ID: kommt die Antwort nicht an und es wird erneut gesendet, gibt es keinen zweiten Baum (23505).
+    const result = await limited(sb.from("focus_trees").insert({
+      id: op.treeId, class_id: op.classId, goal_seconds: op.seconds, created_at: new Date(op.at).toISOString()
+    }));
+    return result.error?.code === "23505" ? { error: null, status: 201 } : result;
+  }
+  if (op.kind === "presence") {
+    const result = await limited(sb.rpc("set_presence", {
+      p_lesson_id: op.lessonId, p_student_id: op.studentId, p_present: op.present, p_delay_ms: delay
+    }));
+    if (result.error?.code === "PGRST202") {
+      result.error = new Error("Für „Wer ist da?“ fehlt noch ein Datenbank-Update " +
+        "(supabase/migrations/0009_presence_and_offline.sql). Bitte wende dich an den Betreiber.");
+    }
+    return result;
+  }
+  const args = { p_lesson_id: op.lessonId, p_student_id: op.studentId, p_column: op.column };
+  if (queue.delaySupported) {
+    const result = await limited(sb.rpc("move_student", { ...args, p_delay_ms: delay }));
+    if (result.error?.code !== "PGRST202") return result;
+    queue.delaySupported = false;
+  }
+  return limited(sb.rpc("move_student", args));
+}
+
+/** Schickt die Warteschlange der Reihe nach; bei Verbindungsproblemen spaeter erneut. */
+async function flushQueue() {
+  if (queue.sending || !sb || !state.session) return;
+  clearTimeout(queue.timer);
+  queue.sending = true;
+  const wasOffline = queue.offline;
+  try {
+    while (queue.ops.length && state.session) {
+      const op = queue.ops[0];
+      let result;
+      try {
+        result = await sendOp(op);
+      } catch (error) {
+        result = { error, status: 0 };
+      }
+      if (result.error && isTransient(result)) {
+        if (!queue.offline) toast("Keine Verbindung. Deine Änderungen werden gespeichert und nachgesendet.", "error");
+        queue.offline = true;
+        notifyQueue();
+        const wait = QUEUE_RETRY_MS[Math.min(queue.retries, QUEUE_RETRY_MS.length - 1)];
+        queue.retries++;
+        queue.timer = setTimeout(flushQueue, wait);
+        return;
+      }
+      // Waehrenddessen kann die Warteschlange geleert worden sein (Abmelden).
+      const index = queue.ops.indexOf(op);
+      if (index >= 0) queue.ops.splice(index, 1);
+      saveQueue();
+      queue.offline = false;
+      queue.retries = 0;
+      if (result.error) showError(result.error, "Eine Änderung konnte nicht gespeichert werden.");
+      notifyQueue({ done: op, error: result.error ?? null });
+    }
+  } finally {
+    queue.sending = false;
+  }
+  if (!queue.ops.length) {
+    if (wasOffline) toast("Wieder verbunden – alle Änderungen sind übertragen.");
+    notifyQueue({ drained: true });
+  }
+}
+
+window.addEventListener("online", () => { queue.retries = 0; flushQueue(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") flushQueue(); });
+
+/** Wendet eine (noch nicht uebertragene) Aenderung auf die Zeilen eines
+ * Unterrichts an – genauso, wie es der Server tut. roster: id -> Name. */
+function applyOp(rows, op, roster) {
+  const index = rows.findIndex((r) => r.student_id === op.studentId);
+  const nextPosition = (col) => Math.max(0, ...rows.filter((r) => r.col === col).map((r) => r.position ?? 0)) + 1;
+  if (op.kind === "move") {
+    const row = rows[index];
+    if (row && row.col !== op.column && isAdjacent(row.col, op.column)) {
+      row.position = nextPosition(op.column);
+      row.col = op.column;
+    }
+  } else if (op.kind === "presence") {
+    if (!op.present && index >= 0) rows.splice(index, 1);
+    if (op.present && index < 0) {
+      rows.push({
+        id: null, col: "links", position: nextPosition("links"), student_id: op.studentId,
+        students: { name: roster.get(op.studentId) ?? "…" }
+      });
+    }
+  }
+  return rows;
+}
 
 /* -------------------------------------------------------------------
    Stundenplan
@@ -1483,6 +1746,15 @@ function updateNowPill() {
 }
 
 async function logout() {
+  const pending = queue.ops.length;
+  if (pending) {
+    confirmDelete(
+      `${pending === 1 ? "Eine Änderung ist" : `${pending} Änderungen sind`} wegen der Verbindung noch nicht ` +
+      "übertragen und gehen beim Abmelden verloren. Trotzdem abmelden?",
+      () => { clearQueue(); return logout(); },
+      "Trotzdem abmelden");
+    return;
+  }
   await sb.auth.signOut();
   state.teacher = null;
   state.openLessons.clear();
@@ -1493,13 +1765,7 @@ async function logout() {
 async function exportData() {
   try {
     const data = await api.exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = h("a", { href: url, download: `behaviourtracker-export-${new Date().toISOString().slice(0, 10)}.json` });
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadFile(`behaviourtracker-export-${todayIso()}.json`, JSON.stringify(data, null, 2), "application/json");
     toast("Export heruntergeladen.");
   } catch (error) {
     showError(error, "Export fehlgeschlagen.");
@@ -1557,10 +1823,12 @@ function resetChrome() {
 const ROUTES = [
   { match: (p) => p.length === 0, view: () => renderToday() },
   { match: (p) => p[0] === "settings" && p.length === 1, view: () => renderSettings() },
+  { match: (p) => p[0] === "settings" && p[1] === "stundenplan" && p.length === 2, view: () => renderScheduleImport() },
   { match: (p) => p[0] === "classes" && p[2] === "stats" && p.length === 3, view: (p) => renderClassStats(p[1]) },
   { match: (p) => p[0] === "classes" && p.length === 1, view: () => renderClassList() },
   { match: (p) => p[0] === "classes" && p[2] === "students" && p[3], view: (p) => renderStudentStats(p[1], p[3]) },
   { match: (p) => p[0] === "classes" && p[2] === "seating" && p.length === 3, view: (p) => renderSeating(p[1]) },
+  { match: (p) => p[0] === "classes" && p[2] === "import" && p.length === 3, view: (p) => renderClassImport(p[1]) },
   { match: (p) => p[0] === "classes" && p.length === 2, view: (p) => renderClassDetail(p[1]) },
   { match: (p) => p[0] === "lessons" && p[1] === "new", view: () => renderNewLesson() },
   { match: (p) => p[0] === "lessons" && p.length === 2, view: (p) => renderBoard(p[1]) },
@@ -1611,6 +1879,9 @@ async function router() {
     appEl.replaceChildren(loadingView());
     try {
       state.teacher = await ensureTeacher();
+      // Was bei schlechtem WLAN liegen geblieben ist (auch vor dem Neuladen), jetzt nachsenden.
+      loadQueue();
+      flushQueue();
       await refreshClassIndex();
       await resumeAfterReload();
       await api.deletePastSchoolYears();
@@ -1772,14 +2043,14 @@ async function renderToday() {
       h("h3", {}, title),
       h("p", {}, text));
 
-  appEl.replaceChildren(
+  appEl.replaceChildren(...[
     pageHead({ eyebrow: formatDate(now), title: `Hallo ${state.teacher.nickname}`, lead }),
     sections.length ? h("div", { class: "stack" }, sections) : null,
     h("div", { class: `menu${sections.length ? " menu--after" : ""}` },
       item("klassen", "Klassen", "Klassen anlegen, Schülerinnen und Schüler verwalten, Sitzplan und Auswertung.", "/classes"),
       item("unterricht", "Unterrichte", "Laufende und vergangene Unterrichte öffnen oder einen neuen starten.", "/lessons"),
       item("wald", "Fokus-Wald", "Lautstärke-Monitor für den Beamer: Ist die Klasse ruhig, wächst ein Baum im Klassenwald.", "/focus"))
-  );
+  ].filter(Boolean));
 }
 
 /** "seit 10:05 · endet automatisch um 10:55" */
@@ -1813,11 +2084,7 @@ async function renderSettings() {
     appEl.replaceChildren(
       pageHead({ title: "Einstellungen" }),
       h("div", { class: "stack" },
-        h("div", { class: "card" },
-          h("h2", {}, "Datenbank-Update fehlt"),
-          h("p", { class: "muted" },
-            "Für Stundenplan und automatisches Unterrichtsende muss einmalig die Migration " +
-            "supabase/migrations/0007_schedule_autoend.sql im Supabase SQL-Editor ausgeführt werden.")),
+        scheduleMigrationHint(),
         paletteCard(),
         accountCard()));
     return;
@@ -2005,6 +2272,13 @@ async function renderSettings() {
       actions: [statusEl]
     }),
     h("div", { class: "stack" },
+      h("section", { class: "card hint-card" },
+        h("div", {},
+          h("h2", {}, "Aus WebUntis übernehmen"),
+          h("p", { class: "muted" },
+            "Statt alles von Hand einzutragen: eine iCal-Datei (.ics) deines Stundenplans einlesen. " +
+            "Stundenzeiten und Klassen werden daraus vorgeschlagen.")),
+        h("button", { class: "btn", type: "button", onclick: () => navigate("/settings/stundenplan") }, "Stundenplan importieren")),
       h("section", { class: "card" },
         h("h2", {}, "Stundenzeiten"),
         h("p", { class: "muted small" },
@@ -2090,6 +2364,7 @@ function accountCard() {
         throw error;
       }
       // Der User existiert nicht mehr: nur die lokale Sitzung entfernen.
+      clearQueue();
       await sb.auth.signOut({ scope: "local" });
       state.teacher = null;
       resetChrome();
@@ -2105,6 +2380,212 @@ function accountCard() {
       "herunterladen oder dein Konto samt aller Daten löschen."),
     h("p", { class: "muted small" }, SCHOOL_YEAR_DELETE_INFO),
     h("div", { class: "row" }, exportBtn, deleteBtn));
+}
+
+/* -------------------------------------------------------------------
+   Ansicht: Stundenplan importieren
+   -------------------------------------------------------------------
+   iCal-Datei (.ics) aus WebUntis oder einem Kalender. Gelesen wird nur
+   im Browser (import-export.js); gespeichert werden nur Stundenzeiten
+   und welche Klasse wann dran ist – keine Faecher, Raeume oder
+   Lehrkraefte aus der Datei.
+   ------------------------------------------------------------------- */
+
+const WEEKDAYS_SHORT = WEEKDAYS.map((d) => d.slice(0, 2));
+
+function scheduleMigrationHint() {
+  return h("div", { class: "card" },
+    h("h2", {}, "Datenbank-Update fehlt"),
+    h("p", { class: "muted" },
+      "Für Stundenplan und automatisches Unterrichtsende muss einmalig die Migration " +
+      "supabase/migrations/0007_schedule_autoend.sql im Supabase SQL-Editor ausgeführt werden."));
+}
+
+async function renderScheduleImport() {
+  appEl.className = "app";
+  setChrome({ title: "Stundenplan importieren", back: "/settings" });
+  appEl.replaceChildren(loadingView());
+  const classes = await refreshClassIndex();
+
+  const head = pageHead({
+    eyebrow: "Einstellungen",
+    title: "Stundenplan importieren",
+    lead: "Aus WebUntis oder einem Kalender: Die App liest eine iCal-Datei (.ics) und schlägt Stundenzeiten und " +
+      "Klassen vor. Du prüfst alles, bevor es übernommen wird."
+  });
+  if (!state.scheduleAvailable) {
+    appEl.replaceChildren(head, scheduleMigrationHint());
+    return;
+  }
+
+  const ownTimes = scheduleRows().filter((r) => r.kind === "stunde");
+  const hadSlots = hasSchedule();
+  let events = null;
+  let derived = null;
+  let groups = [];
+  let useFileTimes = true;
+  // Gruppe -> "" (nicht uebernehmen), "id:<Klasse>" oder "neu:<Name>"
+  const choices = new Map();
+
+  const errorBox = h("div", { class: "error-box", hidden: true });
+  const fail = (message) => { errorBox.textContent = message; errorBox.hidden = !message; };
+  const fileInput = h("input", { type: "file", class: "sr-only", accept: ".ics,text/calendar", tabindex: "-1" });
+  const fileLabel = h("span", { class: "muted small" }, "Keine Datei ausgewählt");
+  const resultEl = h("div", { class: "stack" });
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    fileLabel.textContent = file.name;
+    fail("");
+    events = null;
+    try {
+      if (file.size > MAX_IMPORT_BYTES) throw new Error("Die Datei ist zu groß (höchstens 5 MB).");
+      const found = parseIcs(await file.text());
+      if (!found.length) throw new Error("In der Datei stehen keine Termine von Montag bis Freitag.");
+      events = found;
+      derived = deriveTimes(events);
+      useFileTimes = !ownTimes.length;
+      groups = groupEvents(events, classes);
+      choices.clear();
+      for (const g of groups) choices.set(g.key, g.classId ? `id:${g.classId}` : g.guess ? `neu:${g.guess}` : "");
+    } catch (error) {
+      fail(error.message || "Die Datei konnte nicht gelesen werden.");
+    }
+    draw();
+  });
+
+  const periodsNow = () => (useFileTimes ? derived.periods : ownTimes);
+  const choiceLabel = (value) => (value.startsWith("id:") ? state.classIndex.get(value.slice(3)) : value.slice(4));
+
+  function timesCard() {
+    const radio = (value, label) => {
+      const input = h("input", { type: "radio", name: "importTimes", checked: useFileTimes === value });
+      input.addEventListener("change", () => { useFileTimes = value; draw(); });
+      return h("label", { class: "choice" }, input, h("span", {}, label));
+    };
+    const estimated = useFileTimes && derived.periods.some((p) => p.estimated);
+    return h("section", { class: "card" },
+      h("h2", {}, "Stundenzeiten"),
+      ownTimes.length ? h("div", { class: "choices" },
+        radio(true, "Aus der Datei übernehmen"),
+        radio(false, `Meine bisherigen ${ownTimes.length} Stunden behalten`)) : null,
+      h("table", { class: "table times" },
+        h("tbody", {}, periodsNow().map((p, i) => h("tr", {},
+          h("th", { scope: "row" }, `${i + 1}. Stunde`),
+          h("td", { class: "num" }, `${toClock(p.start)}–${toClock(p.end)}`),
+          h("td", {}, p.estimated ? h("span", { class: "badge" }, "geschätzt") : null))))),
+      estimated ? h("p", { class: "muted small" },
+        "„Geschätzt“: In diesen Stunden unterrichtest du laut Datei nie, ihre Zeiten sind aus den Lücken berechnet. " +
+        "Prüfe sie nach dem Übernehmen in den Einstellungen.") : null);
+  }
+
+  function classesCard() {
+    const items = groups.map((g) => {
+      const days = [...new Set(g.events.map((e) => e.weekday))].sort().map((d) => WEEKDAYS_SHORT[d - 1]).join(", ");
+      const titles = [...g.titles].slice(0, 3).join(", ") + (g.titles.size > 3 ? " …" : "");
+      const select = h("select", { class: "input import-groups__select", "aria-label": `Klasse für ${g.label}` },
+        h("option", { value: "" }, "– nicht übernehmen –"),
+        g.guess ? h("option", { value: `neu:${g.guess}`, selected: choices.get(g.key) === `neu:${g.guess}` },
+          `Neue Klasse „${g.guess}“ anlegen`) : null,
+        classes.map((c) => h("option", { value: `id:${c.id}`, selected: choices.get(g.key) === `id:${c.id}` }, c.name)));
+      select.addEventListener("change", () => { choices.set(g.key, select.value); draw(); });
+      return h("li", { class: "list__item" },
+        h("div", { class: "import-groups__text" },
+          h("strong", {}, g.label),
+          h("span", { class: "list__sub" },
+            `${titles ? `${titles} · ` : ""}${g.events.length} ${g.events.length === 1 ? "Termin" : "Termine"} · ${days}`)),
+        select);
+    });
+    return h("section", { class: "card" },
+      h("h2", {}, "Klassen zuordnen"),
+      h("p", { class: "muted small" },
+        "Die Termine sind nach Klassen sortiert. Prüfe die Zuordnung; Termine ohne Klasse wie Aufsichten oder " +
+        "Konferenzen lässt du einfach weg."),
+      h("ul", { class: "list import-groups" }, items));
+  }
+
+  function previewCard() {
+    const periods = periodsNow();
+    const { slots, unmatched, conflicts } = buildSlots(groups, periods, (g) => choices.get(g.key) || null);
+    const count = Object.keys(slots).length;
+    const applyBtn = h("button", { class: "btn btn--primary", type: "button", disabled: !count }, "Übernehmen");
+    applyBtn.addEventListener("click", () => (hadSlots
+      ? confirmDelete("Dein bisheriger Wochenplan wird durch diesen ersetzt. Fortfahren?", () => apply(applyBtn), "Ersetzen")
+      : apply(applyBtn)));
+
+    return h("section", { class: "card" },
+      h("h2", {}, "So sieht deine Woche aus"),
+      h("p", { class: "muted small" },
+        count ? `${count} ${count === 1 ? "Stunde" : "Stunden"} pro Woche mit Klasse.` : "Noch keine Stunde mit Klasse."),
+      h("div", { class: "week__scroll" },
+        h("table", { class: "week week--preview" },
+          h("thead", {}, h("tr", {}, h("th", {}, ""), WEEKDAYS.map((d) => h("th", { scope: "col" },
+            h("span", { class: "week__long" }, d), h("span", { class: "week__short", "aria-hidden": "true" }, d.slice(0, 2)))))),
+          h("tbody", {}, periods.map((p, i) => h("tr", {},
+            h("th", { scope: "row" }, `${i + 1}.`, h("span", { class: "week__time" }, `${toClock(p.start)}–${toClock(p.end)}`)),
+            WEEKDAYS.map((_, d) => {
+              const value = slots[`${d + 1}:${i + 1}`];
+              return h("td", { class: value ? "is-set" : "" }, value ? choiceLabel(value) : "");
+            })))))),
+      conflicts ? h("p", { class: "muted small" },
+        `${conflicts === 1 ? "Eine Stunde war" : `${conflicts} Stunden waren`} in der Datei unterschiedlich belegt ` +
+        "(z. B. A-/B-Woche). Übernommen ist jeweils die häufigere Klasse.") : null,
+      unmatched ? h("p", { class: "muted small" },
+        `${unmatched === 1 ? "Ein Termin passt" : `${unmatched} Termine passen`} zu keiner Stunde und ` +
+        `${unmatched === 1 ? "fehlt" : "fehlen"} deshalb.`) : null,
+      h("div", { class: "row", style: "margin-top:16px" }, applyBtn,
+        hadSlots ? h("span", { class: "muted small" }, "Ersetzt deinen bisherigen Wochenplan.") : null));
+  }
+
+  async function apply(button) {
+    button.disabled = true;
+    try {
+      // Vorgeschlagene neue Klassen anlegen (oder eine inzwischen gleichnamige nehmen).
+      const created = new Map();
+      for (const value of new Set([...choices.values()].filter((v) => v.startsWith("neu:")))) {
+        const name = cleanName(value.slice(4), 80);
+        const same = [...state.classIndex].find(([, n]) => n.toLocaleLowerCase("de") === name.toLocaleLowerCase("de"));
+        created.set(value, same ? same[0] : (await api.createClass(name)).id);
+      }
+      const resolve = (value) => (!value ? null : value.startsWith("id:") ? value.slice(3) : created.get(value) ?? null);
+      const { slots } = buildSlots(groups, periodsNow(), (g) => resolve(choices.get(g.key)));
+      const next = JSON.parse(JSON.stringify(settings()));
+      next.schedule = useFileTimes
+        ? { dayStart: derived.dayStart, blocks: derived.blocks, slots }
+        : { ...(next.schedule ?? {}), slots };
+      await api.saveSettings(next);
+      state.teacher.settings = next;
+      await refreshClassIndex();
+      updateNowPill();
+      toast(created.size
+        ? `Stundenplan übernommen, ${created.size === 1 ? "1 Klasse" : `${created.size} Klassen`} neu angelegt.`
+        : "Stundenplan übernommen.");
+      navigate("/settings");
+    } catch (error) {
+      showError(error, "Der Stundenplan konnte nicht übernommen werden.");
+      button.disabled = false;
+    }
+  }
+
+  function draw() {
+    resultEl.replaceChildren(...(events ? [timesCard(), classesCard(), previewCard()] : []));
+  }
+
+  appEl.replaceChildren(
+    head,
+    h("div", { class: "stack" },
+      h("section", { class: "card" },
+        h("h2", {}, "iCal-Datei auswählen"),
+        errorBox,
+        h("div", { class: "row" },
+          h("button", { class: "btn", type: "button", onclick: () => fileInput.click() }, "Datei auswählen"),
+          fileLabel, fileInput),
+        h("p", { class: "muted small", style: "margin-bottom:0" },
+          "In WebUntis deinen Stundenplan einer ganzen Woche als iCal-Datei exportieren, oder aus deinem Kalender " +
+          "(Outlook, Google, Apple) eine .ics-Datei speichern. Die Datei wird nur hier im Browser gelesen. Gespeichert " +
+          "werden nur die Stundenzeiten und welche Klasse wann dran ist – keine Fächer, Räume oder Namen.")),
+      resultEl));
 }
 
 /* -------------------------------------------------------------------
@@ -2273,7 +2754,10 @@ async function renderClassDetail(classId) {
         h("h2", {}, "Schülerin / Schüler hinzufügen"), form,
         h("p", { class: "muted small", style: "margin:.6rem 0 0" },
           "Vorname oder Kürzel reicht – je weniger Daten, desto besser. " +
-          "Bitte nur mit Erlaubnis deiner Schule eintragen.")),
+          "Bitte nur mit Erlaubnis deiner Schule eintragen."),
+        h("div", { class: "row", style: "margin-top:1rem" },
+          h("a", { class: "btn", href: `#/classes/${classId}/import` }, "Klassenliste importieren"),
+          h("span", { class: "muted small" }, "aus Untis, WebUntis, Excel oder CSV – nur Vornamen"))),
       h("div", { class: "card" },
         h("h2", {}, "Klassenliste"),
         h("p", { class: "muted small" }, "Auf einen Namen klicken, um die Zeiten zu sehen."),
@@ -2283,6 +2767,202 @@ async function renderClassDetail(classId) {
   // zuverlaessig – deshalb explizit fokussieren, damit sich eine ganze
   // Klassenliste ohne Mausklick eintippen laesst.
   nameInput.focus();
+}
+
+/* -------------------------------------------------------------------
+   Ansicht: Klassenliste importieren
+   -------------------------------------------------------------------
+   Datei (CSV, Excel, Export aus Untis/WebUntis) oder eingefuegter Text.
+   Die Datei wird nur im Browser gelesen (import-export.js). Uebernommen
+   werden nur Vornamen, bei gleichen Vornamen mit dem kuerzesten
+   eindeutigen Anfang des Nachnamens ("Lea M." bzw. "Lea Mü."/"Lea Ma.").
+   ------------------------------------------------------------------- */
+
+const IMPORT_MAX_STUDENTS = 60;
+const TABLE_FILE_TYPES = ".csv,.tsv,.txt,.xlsx,text/csv,text/plain," +
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+async function renderClassImport(classId) {
+  appEl.className = "app";
+  setChrome({ title: "Klassenliste importieren", back: `/classes/${classId}`, section: "klassen" });
+  appEl.replaceChildren(loadingView());
+
+  const cls = await api.getClass(classId);
+  if (!cls) { toast("Klasse nicht gefunden.", "error"); return navigate("/classes"); }
+  const existing = (await api.listStudents(classId)).map((s) => s.name);
+
+  let table = null;   // { rows, delimiter }
+  let layout = null;  // siehe detectLayout()
+  let values = [];    // Klassen in der Klassenspalte, z. B. bei einem Export der ganzen Schule
+  let klasse = null;
+
+  const errorBox = h("div", { class: "error-box", hidden: true });
+  const fail = (message) => { errorBox.textContent = message; errorBox.hidden = !message; };
+  const fileInput = h("input", { type: "file", class: "sr-only", accept: TABLE_FILE_TYPES, tabindex: "-1" });
+  const fileLabel = h("span", { class: "muted small" }, "Keine Datei ausgewählt");
+  const pasteInput = h("textarea", {
+    class: "input", rows: "6", placeholder: "Z. B. aus Excel kopiert, oder ein Name pro Zeile"
+  });
+  const mappingEl = h("section", { class: "card", hidden: true });
+  const previewEl = h("section", { class: "card", hidden: true });
+
+  function use(result) {
+    fail("");
+    table = result?.rows.length ? result : null;
+    if (result && !table) fail("In der Datei stehen keine Namen.");
+    layout = table ? detectLayout(table.rows, table.delimiter) : null;
+    values = table ? classValues(table.rows, layout) : [];
+    klasse = values.length > 1 ? matchClassValue(values, cls.name) : null;
+    drawMapping();
+    drawPreview();
+  }
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    fileLabel.textContent = file.name;
+    pasteInput.value = "";
+    try {
+      if (file.size > MAX_IMPORT_BYTES) throw new Error("Die Datei ist zu groß (höchstens 5 MB).");
+      use(await readTableFile(new Uint8Array(await file.arrayBuffer())));
+    } catch (error) {
+      use(null);
+      fail(error.message || "Die Datei konnte nicht gelesen werden.");
+    }
+  });
+
+  let pasteTimer = null;
+  pasteInput.addEventListener("input", () => {
+    clearTimeout(pasteTimer);
+    pasteTimer = setTimeout(() => {
+      fileInput.value = "";
+      fileLabel.textContent = "Keine Datei ausgewählt";
+      use(pasteInput.value.trim() ? parseDelimited(pasteInput.value) : null);
+    }, 250);
+  });
+  registerCleanup(() => clearTimeout(pasteTimer));
+
+  function drawMapping() {
+    mappingEl.hidden = !table;
+    if (!table) return;
+    const header = layout.headerRow >= 0 ? table.rows[layout.headerRow] : [];
+    const column = (i) => (header[i] ? `Spalte „${header[i]}“` : `Spalte ${i + 1}`);
+    const current = layout.first >= 0 ? `col:${layout.first}` : `${layout.order}:${layout.full}`;
+
+    const firstSelect = h("select", { class: "input" },
+      layout.columns.map((_, i) => h("option", { value: `col:${i}`, selected: current === `col:${i}` }, column(i))),
+      h("optgroup", { label: "Ganzer Name in einer Spalte" },
+        layout.columns.flatMap((_, i) => [
+          h("option", { value: `vn:${i}`, selected: current === `vn:${i}` }, `${column(i)}: Vorname Nachname`),
+          h("option", { value: `nv:${i}`, selected: current === `nv:${i}` }, `${column(i)}: Nachname, Vorname`)])));
+    firstSelect.addEventListener("change", () => {
+      const [kind, i] = firstSelect.value.split(":");
+      if (kind === "col") {
+        layout.first = Number(i);
+        layout.full = -1;
+        if (layout.last === layout.first) layout.last = -1;
+      } else {
+        Object.assign(layout, { first: -1, last: -1, full: Number(i), order: kind });
+      }
+      drawMapping();
+      drawPreview();
+    });
+
+    const lastSelect = layout.first < 0 ? null : h("select", { class: "input" },
+      h("option", { value: "-1" }, "– keine –"),
+      layout.columns.map((_, i) => (i === layout.first ? null
+        : h("option", { value: String(i), selected: layout.last === i }, column(i)))));
+    lastSelect?.addEventListener("change", () => { layout.last = Number(lastSelect.value); drawPreview(); });
+
+    const classSelect = values.length < 2 ? null : h("select", { class: "input" },
+      h("option", { value: "", selected: !klasse }, "– Klasse wählen –"),
+      values.map((v) => h("option", { value: v.name, selected: v.name === klasse }, `${v.name} (${v.count})`)));
+    classSelect?.addEventListener("change", () => { klasse = classSelect.value || null; drawPreview(); });
+
+    const headerInput = h("input", { type: "checkbox", checked: layout.headerRow >= 0 });
+    headerInput.addEventListener("change", () => {
+      layout.headerRow = headerInput.checked ? 0 : -1;
+      values = classValues(table.rows, layout);
+      drawMapping();
+      drawPreview();
+    });
+
+    mappingEl.replaceChildren(
+      h("h2", {}, "So wird die Liste gelesen"),
+      h("p", { class: "muted small" }, "Passt etwas nicht, stell es hier um. Die Vorschau ändert sich sofort."),
+      h("div", { class: "import-fields" },
+        h("label", { class: "field" }, h("span", { class: "field__label" }, "Vornamen"), firstSelect),
+        lastSelect ? h("label", { class: "field" },
+          h("span", { class: "field__label" }, "Nachnamen (nur zum Unterscheiden gleicher Vornamen)"), lastSelect) : null,
+        classSelect ? h("label", { class: "field" },
+          h("span", { class: "field__label" }, "Klasse in der Datei"), classSelect) : null),
+      h("label", { class: "check" }, headerInput, h("span", {}, "Die erste Zeile enthält Überschriften")));
+  }
+
+  function drawPreview() {
+    previewEl.hidden = !table;
+    if (!table) return;
+    if (values.length > 1 && !klasse) {
+      previewEl.replaceChildren(h("h2", {}, "Vorschau"), emptyView("Wähle oben aus, welche Klasse aus der Datei du übernehmen willst."));
+      return;
+    }
+    const names = shortNames(extractPeople(table.rows, layout, { klasse }), existing);
+    const fresh = names.filter((n) => !n.exists);
+    const skipped = names.length - fresh.length;
+    const tooMany = fresh.length > IMPORT_MAX_STUDENTS;
+
+    const submit = h("button", { class: "btn btn--primary", type: "button", disabled: !fresh.length || tooMany },
+      fresh.length === 1 ? "1 Namen übernehmen" : `${fresh.length} Namen übernehmen`);
+    submit.addEventListener("click", async () => {
+      submit.disabled = true;
+      try {
+        await api.createStudents(classId, fresh.map((n) => n.name));
+        toast(fresh.length === 1 ? "1 Name übernommen." : `${fresh.length} Namen übernommen.`);
+        navigate(`/classes/${classId}`);
+      } catch (error) {
+        showError(error, "Die Namen konnten nicht gespeichert werden.");
+        submit.disabled = false;
+      }
+    });
+
+    // replaceChildren() wuerde null als Text "null" einfuegen.
+    previewEl.replaceChildren(...[
+      h("h2", {}, "Vorschau"),
+      h("p", { class: "muted small" }, names.length
+        ? `${names.length} ${names.length === 1 ? "Name" : "Namen"}` + (skipped ? `, davon ${skipped} schon in der Klasse.` : ".")
+        : "Keine Namen gefunden. Stimmt oben die Spalte für die Vornamen?"),
+      names.length ? h("ul", { class: "name-list" }, names.map((n) =>
+        h("li", { class: n.exists ? "is-existing" : null },
+          n.name, n.exists ? h("span", { class: "name-list__note" }, "schon da") : null))) : null,
+      tooMany ? h("div", { class: "error-box" },
+        `Das sind mehr als ${IMPORT_MAX_STUDENTS} Namen. Ist die richtige Klasse gewählt?`) : null,
+      h("p", { class: "muted small" },
+        "Gespeichert werden nur diese Namen. Nachnamen und alle anderen Angaben aus der Datei bleiben in deinem " +
+        "Browser und werden nicht übertragen."),
+      h("div", { class: "row" }, submit)
+    ].filter(Boolean));
+  }
+
+  appEl.replaceChildren(
+    pageHead({
+      eyebrow: cls.name,
+      title: "Klassenliste importieren",
+      lead: "Aus Untis, WebUntis, Excel oder einer anderen Liste. Übernommen werden nur Vornamen – gibt es einen " +
+        "Vornamen mehrfach, mit dem Anfang des Nachnamens, z. B. „Lea M.“ und „Lea S.“."
+    }),
+    h("div", { class: "stack" },
+      h("section", { class: "card" },
+        h("h2", {}, "Liste auswählen"),
+        errorBox,
+        h("div", { class: "row" },
+          h("button", { class: "btn", type: "button", onclick: () => fileInput.click() }, "Datei auswählen"),
+          fileLabel, fileInput),
+        h("p", { class: "muted small" },
+          "CSV, Excel (.xlsx) oder Text. Aus Untis oder WebUntis: die Schülerliste als CSV- oder Excel-Datei exportieren."),
+        h("label", { class: "field" }, h("span", { class: "field__label" }, "Oder Namen einfügen"), pasteInput),
+        h("p", { class: "muted small", style: "margin:0" }, "Bitte nur mit Erlaubnis deiner Schule importieren.")),
+      mappingEl,
+      previewEl));
 }
 
 /* -------------------------------------------------------------------
@@ -2669,6 +3349,59 @@ function schoolYearNotice(now = new Date()) {
 const isPositive = (col) => col === "mitte" || col === "rechts";
 const perLesson = (seconds, lessons) => (lessons > 0 ? seconds / lessons : 0);
 const lessonsLabel = (n) => `${n} ${n === 1 ? "Unterricht" : "Unterrichte"}`;
+const EXPORT_NOTE = "Zeiten in „Du arbeitest gut“ und „Du arbeitest großartig“. Ø je Unterricht zählt beides zusammen. " +
+  "Gezählt werden die Unterrichte, bei denen die Person dabei war. Alphabetisch sortiert, eine Rangliste gibt es bewusst nicht.";
+
+/**
+ * Zeiten einer Klasse. Ein Unterricht zaehlt fuer eine Person, wenn sie
+ * dabei ist (lesson_students) oder dort Zeit gesammelt hat – so zaehlt er
+ * auch fuer jemanden, der mitten in der Stunde gegangen ist ("Wer ist da?").
+ */
+function summarizeClass(students, rows, attendance) {
+  const per = new Map(students.map((st) => [st.id, { mitte: 0, rechts: 0, lessonIds: new Set() }]));
+  const lessons = new Map();
+  const cells = new Map();
+  const cell = (studentId, lessonId) => {
+    const key = `${studentId}|${lessonId}`;
+    if (!cells.has(key)) cells.set(key, { studentId, lessonId, mitte: 0, rechts: 0 });
+    return cells.get(key);
+  };
+  for (const row of attendance) {
+    const entry = per.get(row.student_id);
+    if (!entry) continue;
+    entry.lessonIds.add(row.lesson_id);
+    cell(row.student_id, row.lesson_id);
+    lessons.set(row.lesson_id, { name: row.lessons?.name ?? "Unterricht", date: row.lessons?.date ?? null });
+  }
+  for (const row of rows) {
+    const entry = per.get(row.student_id);
+    const seconds = Number(row.seconds) || 0;
+    if (!entry || !isPositive(row.col) || seconds <= 0) continue;
+    entry[row.col] += seconds;
+    entry.lessonIds.add(row.lesson_id);
+    cell(row.student_id, row.lesson_id)[row.col] += seconds;
+    if (!lessons.has(row.lesson_id)) lessons.set(row.lesson_id, { name: row.lesson_name ?? "Unterricht", date: row.lesson_date ?? null });
+  }
+  const total = { mitte: 0, rechts: 0, lessons: 0 };
+  for (const entry of per.values()) {
+    entry.lessons = entry.lessonIds.size;
+    total.mitte += entry.mitte;
+    total.rechts += entry.rechts;
+    total.lessons += entry.lessons;
+  }
+  return { per, total, lessons, cells: [...cells.values()] };
+}
+
+/** Knopf "Exportieren" mit Aufklappmenue; items wie bei dropdown(). */
+function exportMenu(items) {
+  return dropdown({
+    button: h("button", { class: "btn btn--sm", type: "button" }, "Exportieren", h("span", { class: "caret", "aria-hidden": "true" })),
+    items: () => [{ heading: "Enthält Namen – sicher aufbewahren" }, ...items]
+  });
+}
+
+const CSV_TYPE = "text/csv;charset=utf-8";
+const PDF_TYPE = "application/pdf";
 
 async function renderClassStats(classId) {
   appEl.className = "app";
@@ -2681,24 +3414,45 @@ async function renderClassStats(classId) {
 
   const [students, rows, attendance] = await Promise.all([
     api.listStudents(classId), api.classTimes(classId), api.classAttendance(classId)]);
+  const { per, total, lessons, cells } = summarizeClass(students, rows, attendance);
+  const lessonCount = lessons.size;
+  const minutes = (seconds, n) => (n ? formatDurationLong(seconds) : "–");
+  const classAverage = (key) => minutes(perLesson(total[key], total.lessons), total.lessons);
 
-  const per = new Map(students.map((st) => [st.id, { mitte: 0, rechts: 0, lessons: 0 }]));
-  for (const row of attendance) {
-    const entry = per.get(row.student_id);
-    if (entry) entry.lessons++;
-  }
-  for (const row of rows) {
-    const entry = per.get(row.student_id);
-    if (entry && isPositive(row.col)) entry[row.col] += Number(row.seconds) || 0;
-  }
-  const total = { mitte: 0, rechts: 0, lessons: 0 };
-  for (const entry of per.values()) {
-    total.mitte += entry.mitte;
-    total.rechts += entry.rechts;
-    total.lessons += entry.lessons;
-  }
-  const lessonCount = new Set(attendance.map((row) => row.lesson_id)).size;
-  const minutes = (seconds, lessons) => (lessons ? formatDurationLong(seconds) : "–");
+  const exportName = (ext) => `auswertung-${fileSlug(cls.name)}-${todayIso()}.${ext}`;
+  const exportOverviewCsv = () => downloadFile(exportName("csv"), toCsv([
+    ["Name", "gut (Minuten)", "großartig (Minuten)", "Unterrichte", "Ø je Unterricht (Minuten)"],
+    ...students.map((st) => {
+      const t = per.get(st.id);
+      return [st.name, csvMinutes(t.mitte), csvMinutes(t.rechts), t.lessons, csvMinutes(perLesson(t.mitte + t.rechts, t.lessons))];
+    })
+  ]), CSV_TYPE);
+  const exportLessonsCsv = () => {
+    const names = new Map(students.map((st) => [st.id, st.name]));
+    const list = cells
+      .map((c) => ({ ...c, name: names.get(c.studentId), lesson: lessons.get(c.lessonId) }))
+      .sort((a, b) => String(b.lesson?.date).localeCompare(String(a.lesson?.date)) ||
+        String(a.lesson?.name).localeCompare(String(b.lesson?.name), "de") || a.name.localeCompare(b.name, "de"));
+    downloadFile(`unterrichte-${fileSlug(cls.name)}-${todayIso()}.csv`, toCsv([
+      ["Datum", "Unterricht", "Name", "gut (Minuten)", "großartig (Minuten)"],
+      ...list.map((c) => [formatDate(c.lesson?.date), c.lesson?.name ?? "", c.name, csvMinutes(c.mitte), csvMinutes(c.rechts)])
+    ]), CSV_TYPE);
+  };
+  const exportPdf = () => downloadFile(exportName("pdf"), buildPdf({
+    title: `Auswertung ${cls.name}`,
+    subtitle: `Stand ${formatDate(new Date())} · ${lessonCount ? `erfasst über ${lessonsLabel(lessonCount)}` : "noch keine Unterrichte"}`,
+    facts: lessonCount ? [`Ganze Klasse, im Schnitt je Person und Unterricht: gut ${classAverage("mitte")} · großartig ${classAverage("rechts")}`] : [],
+    columns: [
+      { label: "Name", weight: 3 }, { label: "gut", align: "right" }, { label: "großartig", align: "right" },
+      { label: "Unterrichte", align: "right" }, { label: "Ø je Unterricht", weight: 1.4, align: "right" }],
+    rows: students.map((st) => {
+      const t = per.get(st.id);
+      return [st.name, minutes(t.mitte, t.lessons), minutes(t.rechts, t.lessons), String(t.lessons),
+        minutes(perLesson(t.mitte + t.rechts, t.lessons), t.lessons)];
+    }),
+    notes: [EXPORT_NOTE, SCHOOL_YEAR_DELETE_INFO],
+    footer: `BehaviourTracker · ${cls.name}`
+  }), PDF_TYPE);
 
   const table = students.length
     ? h("table", { class: "table class-stats" },
@@ -2735,9 +3489,15 @@ async function renderClassStats(classId) {
             h("div", { class: "stat__value" }, String(lessonCount))),
           POSITIVE_COLUMNS.map((c) => h("div", { class: `stat stat--${c.key}` },
             h("div", { class: "stat__label" }, c.title),
-            h("div", { class: "stat__value" }, minutes(perLesson(total[c.key], total.lessons), total.lessons)))))),
+            h("div", { class: "stat__value" }, classAverage(c.key)))))),
       h("div", { class: "card" },
-        h("h2", {}, "Nach Schülerin / Schüler"),
+        h("div", { class: "card__head" },
+          h("h2", {}, "Nach Schülerin / Schüler"),
+          students.length ? exportMenu([
+            { label: "Übersicht als PDF", sub: "Zum Ausdrucken oder Ablegen", onSelect: exportPdf },
+            { label: "Übersicht als CSV", sub: "Für Excel, eine Zeile je Person", onSelect: exportOverviewCsv },
+            { label: "Alle Unterrichte als CSV", sub: "Eine Zeile je Person und Unterricht", onSelect: exportLessonsCsv }
+          ]) : null),
         h("p", { class: "muted small" },
           "Zeiten in „Du arbeitest gut“ und „Du arbeitest großartig“. Ø je Unterricht zählt beides zusammen. " +
           "Namen anklicken, um die Zeiten je Unterricht zu sehen."),
@@ -2765,8 +3525,8 @@ async function renderStudentStats(classId, studentId) {
   }]));
   const totals = { mitte: 0, rechts: 0 };
   for (const row of rows) {
-    if (!isPositive(row.col)) continue;
     const seconds = Number(row.seconds) || 0;
+    if (!isPositive(row.col) || seconds <= 0) continue;
     totals[row.col] += seconds;
     if (!perLessonTimes.has(row.lesson_id)) {
       perLessonTimes.set(row.lesson_id, { name: row.lesson_name, date: row.lesson_date, mitte: 0, rechts: 0 });
@@ -2777,6 +3537,28 @@ async function renderStudentStats(classId, studentId) {
   const lessons = [...perLessonTimes.values()]
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const count = lessons.length;
+  const average = count ? formatDurationLong(perLesson(totals.mitte + totals.rechts, count)) : "–";
+  const className = state.classIndex.get(classId) ?? "";
+
+  const exportName = (ext) => `zeiten-${fileSlug(student.name)}-${fileSlug(className)}-${todayIso()}.${ext}`;
+  const exportCsv = () => downloadFile(exportName("csv"), toCsv([
+    ["Datum", "Unterricht", "gut (Minuten)", "großartig (Minuten)"],
+    ...lessons.map((l) => [formatDate(l.date), l.name, csvMinutes(l.mitte), csvMinutes(l.rechts)])
+  ]), CSV_TYPE);
+  const exportPdf = () => downloadFile(exportName("pdf"), buildPdf({
+    title: student.name,
+    subtitle: `${className ? `Klasse ${className} · ` : ""}Stand ${formatDate(new Date())} · ${count ? `erfasst über ${lessonsLabel(count)}` : "noch keine Unterrichte"}`,
+    facts: [
+      `Du arbeitest gut: ${formatDurationLong(totals.mitte)}`,
+      `Du arbeitest großartig: ${formatDurationLong(totals.rechts)}`,
+      `Gut oder großartig, im Schnitt je Unterricht: ${average}`
+    ],
+    columns: [{ label: "Unterricht", weight: 3 }, { label: "Datum", weight: 1.2 },
+      { label: "gut", align: "right" }, { label: "großartig", align: "right" }],
+    rows: lessons.map((l) => [l.name, formatDate(l.date), formatDurationLong(l.mitte), formatDurationLong(l.rechts)]),
+    notes: [EXPORT_NOTE.replace(/ Alphabetisch.*$/, ""), SCHOOL_YEAR_DELETE_INFO],
+    footer: `BehaviourTracker · ${student.name}`
+  }), PDF_TYPE);
 
   const tiles = h("div", { class: "stats__grid" },
     POSITIVE_COLUMNS.map((c) =>
@@ -2785,7 +3567,7 @@ async function renderStudentStats(classId, studentId) {
         h("div", { class: "stat__value" }, formatDurationLong(totals[c.key])))),
     h("div", { class: "stat" },
       h("div", { class: "stat__label" }, "gut oder großartig, Ø je Unterricht"),
-      h("div", { class: "stat__value" }, count ? formatDurationLong(perLesson(totals.mitte + totals.rechts, count)) : "–")));
+      h("div", { class: "stat__value" }, average)));
 
   const table = count
     ? h("table", { class: "table" },
@@ -2807,7 +3589,12 @@ async function renderStudentStats(classId, studentId) {
         h("p", { class: "muted small" }, count ? `Erfasst über ${lessonsLabel(count)}.` : "Noch keine Daten."),
         tiles),
       h("div", { class: "card" },
-        h("h2", {}, "Nach Unterricht"),
+        h("div", { class: "card__head" },
+          h("h2", {}, "Nach Unterricht"),
+          count ? exportMenu([
+            { label: "Als PDF", sub: "Zum Ausdrucken oder Ablegen", onSelect: exportPdf },
+            { label: "Als CSV", sub: "Für Excel", onSelect: exportCsv }
+          ]) : null),
         h("div", { class: "table-scroll" }, table)),
       h("p", { class: "muted small" }, SCHOOL_YEAR_DELETE_INFO))
   );
@@ -2937,6 +3724,15 @@ async function renderBoard(lessonId) {
   }
   setChrome({ title: lesson.name, back: listHash, minimal: true });
 
+  // Alle der Klasse, auch wer gerade nicht dabei ist (fuer "Wer ist da?").
+  let roster = [];
+  try {
+    roster = await api.lessonRoster(lessonId, lesson.class_id);
+  } catch (error) {
+    console.error(error);
+  }
+  const rosterNames = new Map(roster.map((s) => [s.id, s.name]));
+
   // Probe-Unterricht liegt nur im Arbeitsspeicher: vor dem Neuladen oder
   // Schliessen nachfragen, solange er laeuft.
   if (state.guest && !lesson.ended_at) {
@@ -2967,7 +3763,12 @@ async function renderBoard(lessonId) {
   const boardEl = h("div", { class: sorted ? "sorted-grid" : "board" });
   const headerEl = h("div", { class: sorted ? "card board-header" : "card row" });
   const statsEl = h("div", { class: "board-stats" });
-  let busy = false;
+  const syncEl = h("span", { class: "sync-status", role: "status", "aria-live": "polite", hidden: true });
+  const presenceBtn = h("button", { class: "btn btn--ghost", type: "button", onclick: openPresence });
+  // Aktueller Stand inkl. noch nicht uebertragener Aenderungen.
+  let rows = [];
+  // Nach dem Uebertragen einmal mit dem Server abgleichen.
+  let needsSync = !state.guest && pendingFor(lessonId).length > 0;
 
   appEl.replaceChildren(h("div", { class: "stack" },
     headerEl, state.guest && lesson.ended_at ? guestSummaryCard(lessonId) : null, boardEl));
@@ -2985,12 +3786,14 @@ async function renderBoard(lessonId) {
   registerCleanup(() => window.removeEventListener("resize", layout));
 
   async function refresh() {
-    const rows = await api.boardRows(lessonId);
+    const fresh = await api.boardRows(lessonId);
+    rows = state.guest ? fresh : pendingFor(lessonId).reduce((list, op) => applyOp(list, op, rosterNames), fresh);
     draw(rows);
   }
 
   function draw(rows) {
     if (sorted) drawSorted(rows); else drawKanban(rows);
+    drawPresenceCount();
   }
 
   function drawSorted(rows) {
@@ -3017,7 +3820,7 @@ async function renderBoard(lessonId) {
       h("div", { class: "student__name" }, name));
 
     card.addEventListener("pointerdown", (event) => {
-      if (lesson.ended_at || busy || event.button !== 0) return;
+      if (lesson.ended_at || event.button !== 0) return;
       event.preventDefault();
       card.setPointerCapture(event.pointerId);
 
@@ -3104,20 +3907,89 @@ async function renderBoard(lessonId) {
     return tile;
   }
 
-  async function move(studentId, targetColumn) {
-    if (busy || lesson.ended_at) return;
-    busy = true;
-    const card = boardEl.querySelector(`.student[data-student-id="${CSS.escape(studentId)}"]`);
-    card?.classList.add("student--busy");
-    try {
-      await api.moveStudent(lessonId, studentId, targetColumn);
-      await refresh();
-    } catch (error) {
-      showError(error, "Verschieben fehlgeschlagen.");
-      card?.classList.remove("student--busy");
-    } finally {
-      busy = false;
+  /** Wirkt sofort; gespeichert wird ueber die Warteschlange, damit kurze
+   * WLAN-Aussetzer niemanden ausbremsen. Ohne Konto direkt im Tab. */
+  async function change(op) {
+    applyOp(rows, op, rosterNames);
+    draw(rows);
+    if (!state.guest) {
+      needsSync = true;
+      enqueue({ ...op, lessonId });
+      return;
     }
+    try {
+      if (op.kind === "move") await api.moveStudent(lessonId, op.studentId, op.column);
+      else await api.setPresence(lessonId, op.studentId, op.present);
+    } catch (error) {
+      showError(error);
+      await refresh();
+    }
+  }
+
+  function move(studentId, targetColumn) {
+    if (lesson.ended_at) return;
+    const row = rows.find((r) => r.student_id === studentId);
+    if (row && isAdjacent(row.col, targetColumn)) change({ kind: "move", studentId, column: targetColumn });
+  }
+
+  function drawPresenceCount() {
+    const total = Math.max(roster.length, rows.length);
+    presenceBtn.replaceChildren("Wer ist da?", h("span", { class: "badge" }, `${rows.length}/${total}`));
+  }
+
+  /** "Wer ist da?": Wer fehlt, wird aus dem Unterricht genommen und
+   * sammelt keine Zeit; eine Abwesenheit wird nicht gespeichert. */
+  function openPresence() {
+    const list = roster.length
+      ? [...roster].sort((a, b) => a.name.localeCompare(b.name, "de"))
+      : byStudentName(rows).map((r) => ({ id: r.student_id, name: r.students?.name ?? "Unbekannt" }));
+    const summary = h("p", { class: "presence__summary" });
+    const grid = h("div", { class: "presence__grid" });
+    function drawList() {
+      const here = new Set(rows.map((r) => r.student_id));
+      const missing = list.length - list.filter((s) => here.has(s.id)).length;
+      summary.textContent = missing ? `${list.length - missing} da · ${missing} ${missing === 1 ? "fehlt" : "fehlen"}` : "Alle da";
+      grid.replaceChildren(...list.map((s) => {
+        const present = here.has(s.id);
+        return h("button", {
+          class: "presence__item", type: "button", "aria-pressed": String(present),
+          onclick: () => { change({ kind: "presence", studentId: s.id, present: !present }); drawList(); }
+        }, h("span", { class: "presence__name" }, s.name), h("span", { class: "presence__state" }, present ? "da" : "fehlt"));
+      }));
+    }
+    drawList();
+    const close = openModal([
+      h("h2", { style: "margin-top:0" }, "Wer ist da?"),
+      h("p", { class: "muted small" },
+        "Tippe an, wer fehlt. Wer fehlt, sammelt keine Zeit, und der Unterricht zählt für diese Person in der " +
+        "Auswertung nicht mit. Schon gesammelte Zeit bleibt, z. B. wenn jemand früher geht."),
+      summary,
+      grid,
+      h("div", { class: "row", style: "justify-content:flex-end" },
+        h("button", { class: "btn btn--primary", type: "button", onclick: () => close() }, "Fertig"))
+    ], { className: "modal__panel--wide" });
+    registerCleanup(close);
+  }
+
+  function drawSync() {
+    const n = pendingFor(lessonId).length;
+    syncEl.hidden = !n;
+    syncEl.classList.toggle("sync-status--offline", queue.offline);
+    syncEl.textContent = !n ? "" : queue.offline
+      ? `Keine Verbindung · ${n === 1 ? "1 Änderung wartet" : `${n} Änderungen warten`}`
+      : "Wird gespeichert …";
+  }
+
+  if (!state.guest) {
+    onQueue((event) => {
+      drawSync();
+      // Abgelehnte Aenderung oder alles uebertragen: mit dem Server abgleichen.
+      const rejected = event.done?.lessonId === lessonId && event.error;
+      if (rejected || (event.drained && needsSync)) {
+        needsSync = false;
+        refresh().catch(console.error);
+      }
+    });
   }
 
   function boardStatus() {
@@ -3142,6 +4014,14 @@ async function renderBoard(lessonId) {
       : h("button", { class: "btn btn--primary", onclick: () => confirmDelete(
           "Unterricht jetzt beenden? Alle laufenden Zeiten werden gestoppt.",
           async () => {
+            const waiting = pendingFor(lessonId).length;
+            if (waiting) {
+              flushQueue();
+              throw new Error(queue.offline
+                ? `Keine Verbindung: ${waiting === 1 ? "1 Änderung wartet" : `${waiting} Änderungen warten`} noch. ` +
+                  "Beende den Unterricht, sobald das WLAN wieder da ist."
+                : "Die letzten Änderungen werden noch gespeichert. Bitte gleich noch einmal tippen.");
+            }
             await api.endLesson(lessonId);
             state.openLessons.delete(lessonId);
             await renderBoard(lessonId);
@@ -3151,7 +4031,8 @@ async function renderBoard(lessonId) {
 
     const info = h("div", { style: sorted ? "min-width:0" : "flex:1 1 auto;min-width:0" },
       h("strong", {}, lesson.classes?.name ?? "Klasse"),
-      h("span", { class: "list__sub" }, boardStatus()));
+      h("span", { class: "list__sub" }, boardStatus()),
+      syncEl);
 
     // Die Klassenansicht laeuft in einem eigenen Fenster und braucht dafuer
     // die Datenbank; der Probe-Unterricht existiert nur in diesem Tab.
@@ -3166,10 +4047,11 @@ async function renderBoard(lessonId) {
     });
 
     headerEl.replaceChildren(info, ...(sorted ? [statsEl] : []),
-      h("div", { class: "row board-actions" }, classView, actions));
+      h("div", { class: "row board-actions" }, presenceBtn, classView, actions));
   }
 
   drawHeader();
+  drawSync();
   await refresh();
 }
 
@@ -3303,6 +4185,8 @@ async function renderClassView(lessonId, requestedMode) {
       { event: "*", schema: "public", table: "lesson_students", filter: `lesson_id=eq.${lessonId}` }, schedule)
     .on("postgres_changes",
       { event: "*", schema: "public", table: "lessons", filter: `id=eq.${lessonId}` }, schedule)
+    // "Wer ist da?" loescht Zeilen; Loeschungen kommen bei Realtime nur ungefiltert an.
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "lesson_students" }, schedule)
     // Auch nach einer Wiederverbindung: verpasste Aenderungen nachladen.
     .subscribe((status) => { if (status === "SUBSCRIBED") schedule(); });
 
@@ -4727,11 +5611,18 @@ async function renderFocusRoom(classId) {
       showCelebration(number);
     }
 
-    /** Speichert einen Baum; liefert seine Nummer im Wald oder null. */
+    /** Speichert einen Baum; liefert seine Nummer im Wald oder null. Mit
+     * Konto ueber die Warteschlange: Bei schlechtem WLAN wird er nachgesendet. */
     async function savePlant(seconds) {
       if (probe) return null;
       try {
-        const planted = await api.plantTree(cls.id, seconds);
+        let planted;
+        if (state.guest) {
+          planted = await api.plantTree(cls.id, seconds);
+        } else {
+          planted = { id: uuid(), goal_seconds: seconds, created_at: new Date().toISOString() };
+          enqueue({ kind: "tree", classId: cls.id, treeId: planted.id, seconds });
+        }
         cls.focus_trees.push(planted);
         return cls.focus_trees.length;
       } catch (error) {
@@ -4884,8 +5775,25 @@ function confettiView(count = 60) {
 }
 
 /* -------------------------------------------------------------------
-   Bestaetigungsdialog
+   Dialoge
    ------------------------------------------------------------------- */
+
+/** Dialog mit beliebigem Inhalt; Escape oder Klick daneben schliesst.
+ * Liefert die Funktion zum Schliessen. */
+function openModal(children, { className = "" } = {}) {
+  const panel = h("div", { class: `modal__panel stack ${className}` }, children);
+  const modal = h("div", { class: "modal", role: "dialog", "aria-modal": "true" }, panel);
+  const close = () => {
+    modal.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (event) => { if (event.key === "Escape") close(); };
+  modal.addEventListener("click", (event) => { if (event.target === modal) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.append(modal);
+  panel.querySelector("button")?.focus();
+  return close;
+}
 
 function confirmDelete(message, onConfirm, confirmLabel = "Löschen") {
   const panel = h("div", { class: "modal__panel" });

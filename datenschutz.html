@@ -31,7 +31,7 @@
 
   <main id="main" class="container legal">
     <h1>Datenschutzerklärung</h1>
-    <p class="legal__meta">Stand: 2. Oktober 2026</p>
+    <p class="legal__meta">Stand: 4. Oktober 2026</p>
 
     <div class="legal__box">
       <strong>Das Wichtigste in Kürze</strong>
@@ -41,6 +41,7 @@
         <li>Deine Daten in der App liegen in einem Rechenzentrum in der EU. Jedes Konto sieht nur seine eigenen Daten.</li>
         <li>Das Mikrofon im Fokus-Wald nimmt nichts auf. Die Lautstärke wird nur in deinem Browser berechnet.</li>
         <li>Du kannst in der App jederzeit alle Daten exportieren und dein Konto mit allen Daten löschen.</li>
+        <li>Importierte Klassenlisten und Stundenpläne werden nur in deinem Browser gelesen. Gespeichert werden nur Vornamen bzw. Stundenzeiten und Klassen.</li>
         <li>Unterrichte und ihre Zeiten werden am Ende jedes Schuljahres automatisch gelöscht.</li>
         <li>Ohne Anmeldung bleibt alles in deinem Browser: Der Probe-Unterricht wird gar nicht gespeichert, der Fokus-Wald nur auf deinem Gerät.</li>
       </ul>
@@ -98,7 +99,7 @@
     <ul>
       <li>Klassen (Name, z. B. „7b“),</li>
       <li>Schülerinnen und Schüler (Name oder Kürzel, optional Sitzplatz im Sitzplan),</li>
-      <li>Unterrichte (Name, Datum, gewählte Ansicht, Zeitpunkt des automatischen Endes),</li>
+      <li>Unterrichte (Name, Datum, gewählte Ansicht, Zeitpunkt des automatischen Endes) und wer daran teilnimmt. Wer fehlt, nimmst du über „Wer ist da?“ aus dem Unterricht heraus. Eine Abwesenheit wird nicht gesondert gespeichert: Die Person steht dann einfach nicht in diesem Unterricht,</li>
       <li>Zustände im Unterricht: in welcher Gruppe jemand gerade steht („Start“, „Du arbeitest gut“, „Du arbeitest großartig“) und die Zeiten in „Du arbeitest gut“ und „Du arbeitest großartig“ mit Zeitstempeln. Wie lange jemand im Startzustand war, wird nicht gespeichert,</li>
       <li>Fokus-Wald: gepflanzte Bäume (Klasse, Zielzeit, Zeitpunkt) und Belohnungstexte,</li>
       <li>dein Stundenplan, falls du ihn einrichtest (Stundenzeiten und welche Klasse du an welchem Wochentag in welcher Stunde hast), und deine Einstellung zum automatischen Unterrichtsende.</li>
@@ -106,6 +107,8 @@
     <p><strong>Wer ist verantwortlich?</strong> Für die Daten von Schülerinnen und Schülern ist die Schule verantwortlich, an der du die App einsetzt. Ich verarbeite diese Daten ausschließlich in ihrem Auftrag als Auftragsverarbeiter (Art. 28 DSGVO) und nutze sie für keine eigenen Zwecke. Die vertraglichen Regeln dazu stehen in <a href="./nutzungsbedingungen.html#auftragsverarbeitung">§ 5 der Nutzungsbedingungen</a>.</p>
     <p>Die Rechtsgrundlage für die Verarbeitung und die Information von Schülerinnen, Schülern und Eltern liegen damit bei der Schule. Betroffene wenden sich mit Fragen und Anliegen bitte an die Schule oder die Lehrkraft. Anfragen, die mich direkt erreichen, leite ich an die zuständige Lehrkraft weiter.</p>
     <p><strong>Datensparsamkeit:</strong> Bitte trage nur Vornamen oder Kürzel ein und keine weiteren Angaben wie Gesundheitsdaten oder Bemerkungen.</p>
+    <p><strong>Klassenliste und Stundenplan importieren:</strong> Wählst du eine Datei aus (z. B. aus Untis, WebUntis oder Excel), liest die App sie nur in deinem Browser. Von einer Klassenliste werden nur die Vornamen übertragen und gespeichert; gibt es einen Vornamen mehrfach, mit dem Anfang des Nachnamens („Lea M.“). Nachnamen und alle anderen Angaben aus der Datei, etwa Geburtsdaten, verlassen dein Gerät nicht. Von einem Stundenplan (iCal-Datei) werden nur die Stundenzeiten und die Zuordnung, welche Klasse wann dran ist, gespeichert – keine Fächer, Räume oder Namen von Lehrkräften.</p>
+    <p><strong>Export als CSV oder PDF:</strong> Die Dateien mit der Auswertung erzeugt dein Browser aus den angezeigten Daten. Sie werden nicht über einen Server erstellt. Für die heruntergeladenen Dateien bist du selbst verantwortlich.</p>
 
     <h2 id="supabase">5. Datenbank und Anmeldung (Supabase)</h2>
     <p>Datenbank, Anmeldung und der Versand der Bestätigungs-E-Mails laufen über Supabase: Supabase Pte. Ltd., 65 Chulia Street #38-02/03, OCBC Centre, Singapur 049513.</p>
@@ -122,6 +125,7 @@
     <ul>
       <li>deine Anmeldesitzung, damit du angemeldet bleibst – sie wird beim Abmelden entfernt,</li>
       <li>im Fokus-Wald das zuletzt gewählte Zeitziel und die Empfindlichkeit des Lautstärke-Monitors,</li>
+      <li>bei kurz unterbrochener Verbindung (schlechtes WLAN) die Änderungen im Unterricht und gepflanzte Bäume, die noch nicht übertragen sind – nur interne Kennungen, Zustand und Zeitpunkt, keine Namen. Sie werden gelöscht, sobald sie übertragen sind, oder wenn du dich abmeldest. Älter als sieben Tage werden sie nicht mehr gesendet und beim nächsten Öffnen der App gelöscht,</li>
       <li>wenn du den Fokus-Wald ohne Anmeldung nutzt: die Klassennamen, die du anlegst, die gepflanzten Bäume (Zielzeit und Zeitpunkt) und die Belohnung. Diese Daten bleiben auf deinem Gerät, ich erhalte sie nicht. Du löschst sie, indem du die Klasse im Fokus-Wald löschst oder die Websitedaten im Browser entfernst.</li>
     </ul>
     <p>Der <strong>Probe-Unterricht ohne Anmeldung</strong> mit den Vornamen, die du eintippst, liegt nur im Arbeitsspeicher des geöffneten Tabs. Er wird weder im Browser gespeichert noch übertragen und ist nach dem Neuladen oder Schließen der Seite weg. Ohne Anmeldung stellt die App keine Verbindung zu Supabase her.</p>
