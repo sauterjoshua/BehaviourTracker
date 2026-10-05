@@ -4,7 +4,7 @@ Internes Dokument des Betreibers. Muss nicht veröffentlicht werden, ist aber
 der Aufsichtsbehörde auf Anfrage vorzulegen. Bei Änderungen an App, Diensten
 oder Datenschutzerklärung mit anpassen.
 
-- **Stand:** 4. Oktober 2026
+- **Stand:** 5. Oktober 2026
 - **Verantwortlicher / Auftragsverarbeiter:** [wird ergänzt], [wird ergänzt], [wird ergänzt], [wird ergänzt]
 - **Datenschutzbeauftragter:** nicht benannt (keine Pflicht nach Art. 37 DSGVO / § 38 BDSG)
 
@@ -20,8 +20,8 @@ oder Datenschutzerklärung mit anpassen.
 | Rechtsgrundlage | Art. 6 Abs. 1 lit. f DSGVO |
 | Betroffene | Besucherinnen und Besucher |
 | Daten | IP-Adresse, Zeitpunkt, aufgerufene Datei, Datenmenge, Referrer, Browser/Betriebssystem |
-| Empfänger | GitHub, Inc. (GitHub Pages); Netlify, Inc. |
-| Drittland | USA – beide unter dem EU-US Data Privacy Framework zertifiziert (Art. 45 DSGVO) |
+| Empfänger | Netlify, Inc. |
+| Drittland | USA – unter dem EU-US Data Privacy Framework zertifiziert (Art. 45 DSGVO) |
 | Löschung | nach den Fristen der Anbieter; keine eigene Auswertung |
 
 ### A2. Benutzerkonten

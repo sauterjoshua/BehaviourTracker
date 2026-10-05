@@ -1,7 +1,5 @@
 # BehaviourTracker
 
-🔗 **Seite öffnen:** https://sauterjoshua.github.io/BehaviourTracker/
-
 ---
 
 ## Ohne Anmeldung
@@ -342,8 +340,8 @@ SQL-Editor ausgeführt werden.
   (inkl. Vereinbarung zur Auftragsverarbeitung nach Art. 28 DSGVO für
   Schulen) liegen als `impressum.html`, `datenschutz.html` und
   `nutzungsbedingungen.html` im Repo und sind im Footer jeder Seite verlinkt.
-  Platzhalter wie `{{NAME}}` lassen beide Deploys (GitHub Actions und
-  Netlify-`build.sh`) bewusst abbrechen.
+  Platzhalter wie `{{NAME}}` lassen den Deploy (Netlify-`build.sh`)
+  bewusst abbrechen.
 - **Offen:** Name, Anschrift, E-Mail und Telefon des Anbieters stehen noch als
   „[wird ergänzt]“ in Impressum, Datenschutzerklärung, Nutzungsbedingungen und
   `docs/verarbeitungsverzeichnis.md`. Die Seite läuft bisher nicht öffentlich

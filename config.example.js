@@ -1,6 +1,6 @@
 // Kopie dieser Datei als `config.js` anlegen und ausfuellen.
-// `config.js` ist in .gitignore und wird beim GitHub-Pages-Deploy
-// aus den Repository-Secrets erzeugt (siehe .github/workflows/deploy.yml).
+// `config.js` ist in .gitignore und wird beim Netlify-Deploy aus den
+// Umgebungsvariablen der Site erzeugt (siehe build.sh).
 //
 // Der Anon-/Publishable-Key ist oeffentlich und darf im Browser stehen –
 // der Schutz kommt ausschliesslich ueber Row Level Security.
