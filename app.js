@@ -5849,20 +5849,32 @@ function pickLessonMode() {
     modal.addEventListener("click", (event) => { if (event.target === modal) close(null); });
     document.addEventListener("keydown", onKey);
 
+    // Zwei gleichrangige Optionen mit kleiner Skizze der Ansicht in den
+    // Zustandsfarben (links = Start, mitte = gut, rechts = grossartig).
+    const option = (mode, title, sub, glyph) =>
+      h("button", { class: "mode-option", type: "button", onclick: () => close(mode) },
+        glyph,
+        h("span", {},
+          h("span", { class: "mode-option__title" }, title),
+          h("span", { class: "mode-option__sub" }, sub)));
+    const glyph = (variant, states) =>
+      h("span", { class: `mode-glyph mode-glyph--${variant}`, "aria-hidden": "true" },
+        states.map((s) => h("i", { "data-s": s })));
+
     panel.append(
-      h("h2", { style: "margin-top:0" }, "Ansicht wählen"),
-      h("p", { class: "muted small" },
-        "Kanban: Schüler per Drag & Drop durch drei Spalten bewegen. " +
-        "Sortierte Ansicht: alle Namen alphabetisch in einem Raster, " +
-        "per Klick weiterschalten."),
-      h("div", { class: "stack" },
-        h("button", { class: "btn btn--primary", type: "button", onclick: () => close("kanban") },
-          "Kanban"),
-        h("button", { class: "btn btn--primary", type: "button", onclick: () => close("sortiert") },
-          "Sortierte Ansicht")),
-      h("button", { class: "btn", type: "button", onclick: () => close(null) }, "Abbrechen")
+      h("h2", { id: "mode-title", style: "margin-top:0" }, "Ansicht wählen"),
+      h("div", { class: "mode-options" },
+        option("kanban", "Kanban", "Namen per Drag & Drop durch drei Spalten ziehen.",
+          glyph("kanban", ["links", "mitte", "rechts"])),
+        option("sortiert", "Sortierte Ansicht", "Alle Namen alphabetisch im Raster, per Tipp weiterschalten.",
+          glyph("grid", ["mitte", "links", "rechts", "links", "mitte", "mitte",
+            "links", "rechts", "mitte", "links", "links", "mitte"]))),
+      h("div", { class: "row", style: "justify-content:flex-end" },
+        h("button", { class: "btn btn--ghost", type: "button", onclick: () => close(null) }, "Abbrechen"))
     );
+    modal.setAttribute("aria-labelledby", "mode-title");
     document.body.append(modal);
+    panel.querySelector(".mode-option").focus();
   });
 }
 

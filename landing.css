@@ -70,7 +70,9 @@ p { margin: 0; }
 .site-header__login { margin-left: auto; min-height: 40px; }
 @media (min-width: 720px) {
   .site-nav { display: flex; }
-  .site-header__login { margin-left: 0; }
+  /* Nur hinter der Navigation (Startseite); auf Seiten ohne Navigation
+     (Rechtliches, 404) bleibt der Knopf rechts. */
+  .site-nav + .site-header__login { margin-left: 0; }
 }
 
 /* ---------------- Buttons & Kleinteile ---------------- */
@@ -91,17 +93,26 @@ p { margin: 0; }
 
 .section { padding: 64px 0; }
 @media (min-width: 960px) { .section { padding: 96px 0; } }
+/* Zwei helle Abschnitte direkt hintereinander: nicht doppelt Luft */
+.section:not(.section--alt) + .section:not(.section--alt) { padding-top: 0; }
 
-.section__head { max-width: 40rem; margin: 0 auto 48px; text-align: center; }
-.section__head h2 {
-  font-size: clamp(1.75rem, 1.25rem + 2vw, 2.5rem);
+/* Abschnittskoepfe linksbuendig wie der Hero; ab Desktop Ueberschrift
+   links, Einleitung rechts auf Grundlinie der letzten Zeile. */
+.section__head { display: grid; gap: 16px; margin-bottom: 40px; }
+@media (min-width: 960px) {
+  .section__head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 64px; margin-bottom: 56px; }
+}
+.section__head h2,
+.howto__intro h2 {
+  margin: 0;
+  max-width: 18ch;
+  font-size: clamp(1.875rem, 1.25rem + 2.2vw, 2.75rem);
   font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -.02em;
-  margin-bottom: 16px;
+  line-height: 1.08;
+  letter-spacing: -.03em;
   text-wrap: balance;
 }
-.section__lead { color: var(--text-muted); font-size: 1.125rem; max-width: 60ch; margin: 0 auto; text-wrap: balance; }
+.section__lead { margin: 0; max-width: 46ch; color: var(--text-muted); font-size: 1.125rem; text-wrap: pretty; }
 
 /* ---------------- 1. Hero ---------------- */
 
@@ -257,7 +268,7 @@ p { margin: 0; }
 
 /* ---------------- 3. Problem -> Loesung ---------------- */
 
-.compare { display: grid; gap: 24px; max-width: 60rem; margin: 0 auto; }
+.compare { display: grid; gap: 24px; }
 @media (min-width: 768px) { .compare { grid-template-columns: 1fr 1fr; } }
 
 .compare__card {
@@ -279,100 +290,230 @@ p { margin: 0; }
 
 /* ---------------- 4. Features ---------------- */
 
-.features { display: grid; gap: 24px; margin: 0; padding: 0; list-style: none; }
-@media (min-width: 768px) { .features { grid-template-columns: repeat(3, 1fr); } }
-
-.feature {
-  padding: 32px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+/* Bento: Board breit, Auswertung schmal, Fokus-Wald ueber die ganze Breite.
+   Jede Kachel zeigt einen nachgebauten Ausschnitt der App. */
+.bento { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+@media (min-width: 960px) {
+  .bento { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; }
+  .tile--tap   { grid-column: span 7; }
+  .tile--times { grid-column: span 5; }
+  .tile--forest { grid-column: 1 / -1; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: center; gap: 48px; }
 }
-.feature__icon {
+
+.tile {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+@media (min-width: 640px) { .tile { padding: 32px; } }
+.tile h3 { margin-bottom: 8px; font-size: 1.375rem; font-weight: 600; letter-spacing: -.015em; }
+.tile__text p { max-width: 42ch; color: var(--text-muted); text-wrap: pretty; }
+.tile__note { color: var(--text-muted); font-size: .875rem; }
+.tile__link {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: 24px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-soft);
-  color: var(--accent);
+  gap: 6px;
+  margin-top: 20px;
+  font-weight: 600;
+  text-decoration: none;
 }
-.feature h3 { font-size: 1.25rem; font-weight: 600; margin-bottom: 8px; }
-.feature p { color: var(--text-muted); }
+.tile__link span { transition: transform var(--t); }
+.tile__link:hover span { transform: translateX(3px); }
+
+/* Ausschnitte sitzen auf dem Seitengrund, damit sie sich von der Kachel abheben */
+.demo-tap,
+.demo-times {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+/* Feedback: dieselbe Kachel in den drei Stufen */
+.tile--tap { grid-template-rows: auto 1fr auto; }
+.demo-tap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 12px;
+}
+.demo-tap__tile {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 8rem;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.demo-tap__tile b { font-size: clamp(1rem, .8rem + .8vw, 1.375rem); letter-spacing: -.01em; }
+.demo-tap__tile span { font-size: .75rem; font-weight: 600; }
+.demo-tap__tile[data-s="links"]  { background: var(--col-links-bg); }
+.demo-tap__tile[data-s="mitte"]  { background: var(--col-mitte-bg); }
+.demo-tap__tile[data-s="rechts"] { background: var(--col-rechts-bg); }
+.demo-tap__tile[data-s="links"] span  { color: var(--col-links-head); }
+.demo-tap__tile[data-s="mitte"] span  { color: var(--col-mitte-head); }
+.demo-tap__tile[data-s="rechts"] span { color: var(--col-rechts-head); }
+/* Erste Kachel: rechte Haelfte leicht getoent (dort wird getippt), der
+   Tipp-Punkt sitzt unter dem Namen, damit er nichts verdeckt. */
+.demo-tap__tile--touch { overflow: hidden; }
+.demo-tap__tile--touch::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 50%;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.demo-tap__tile--touch::after {
+  content: "";
+  position: absolute;
+  bottom: 9%;
+  left: 75%;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.demo-tap__tile > * { position: relative; }
+/* Kleine Kacheln: kein Platz fuer den Punkt, die getoente Haelfte reicht */
+@media (max-width: 639px) { .demo-tap__tile--touch::after { display: none; } }
+.demo-tap__arrow {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Auswertung: wie die Schueler-Auswertung in der App */
+.demo-times { padding: 20px; font-size: .875rem; }
+.demo-times__who { margin-bottom: 12px; font-size: 1rem; font-weight: 700; }
+.demo-times__who span { color: var(--text-muted); font-weight: 400; }
+.demo-times__stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.demo-times__stats div { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 8px; }
+.demo-times__stats b { font-size: 1.25rem; line-height: 1.15; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.demo-times__stats span { font-size: .8125rem; font-weight: 500; }
+.demo-times__stats [data-s="mitte"]  { background: var(--col-mitte-bg); }
+.demo-times__stats [data-s="rechts"] { background: var(--col-rechts-bg); }
+.demo-times__stats [data-s="mitte"] span  { color: var(--col-mitte-head); }
+.demo-times__stats [data-s="rechts"] span { color: var(--col-rechts-head); }
+.demo-times table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.demo-times td { padding: 8px 0; border-top: 1px solid var(--border); }
+.demo-times td + td { padding-left: 12px; text-align: right; white-space: nowrap; }
+.demo-times td span { margin-left: 4px; color: var(--text-muted); }
+
+/* Fokus-Wald: feste Beamer-Farben wie .focus in style.css */
+.demo-forest {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  overflow: hidden;
+  padding: 24px 24px 28px;
+  border-radius: 12px;
+  color: #f1f5f4;
+  background-color: #12343b;
+  background-image:
+    radial-gradient(ellipse 80% 55% at 50% 100%, rgba(255, 255, 255, .10), transparent 70%),
+    linear-gradient(to bottom, rgba(0, 0, 0, .28), transparent 45%);
+}
+.demo-forest__progress { position: absolute; inset: 0 0 auto; height: 4px; background: rgba(255, 255, 255, .1); }
+.demo-forest__progress i { display: block; width: 84%; height: 100%; background: #86efac; }
+.demo-forest__top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; justify-self: stretch; }
+.demo-forest__time { font-size: clamp(2.25rem, 1.75rem + 2vw, 3.25rem); font-weight: 700; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.demo-forest__goal { font-size: .875rem; opacity: .75; }
+.demo-forest__tree { display: block; width: auto; height: clamp(150px, 20vw, 200px); margin-top: 8px; }
+.demo-forest__status { font-size: 1.125rem; font-weight: 700; }
+.demo-forest__meter { justify-self: stretch; height: 10px; margin-top: 16px; overflow: hidden; border-radius: 999px; background: rgba(255, 255, 255, .14); }
+.demo-forest__meter i { display: block; width: 31%; height: 100%; border-radius: inherit; background: #4ade80; }
 
 /* ---------------- 5. So funktioniert's ---------------- */
 
 .section--alt { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 
-.steps { display: grid; gap: 40px; margin: 0; padding: 0; list-style: none; }
-@media (min-width: 768px) { .steps { grid-template-columns: repeat(3, 1fr); gap: 32px; } }
+/* Desktop: links Ueberschrift und darunter das Wichtigste zum Datenschutz,
+   rechts die Schritte. Mobil: Ueberschrift, Schritte, Datenschutz. */
+.howto { display: grid; gap: 40px; }
+@media (min-width: 960px) {
+  .howto { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-rows: auto 1fr; gap: 32px 96px; }
+  .howto .steps { grid-column: 2; grid-row: 1 / span 2; }
+  .howto .trust { grid-column: 1; grid-row: 2; align-self: start; }
+}
+.howto__intro .section__lead { margin-top: 16px; }
 
-.step { position: relative; }
+.steps { display: grid; margin: 0; padding: 0; list-style: none; }
+.step {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  gap: 16px;
+  padding: 32px 0;
+  border-top: 1px solid var(--border);
+}
+.step:first-child { padding-top: 0; border-top: 0; }
+.step:last-child { padding-bottom: 0; }
 .step__num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  margin-bottom: 24px;
-  border-radius: 50%;
-  background: var(--text);
-  color: var(--bg);
-  font-weight: 700;
+  color: var(--accent);
+  font-size: 3rem;
+  font-weight: 300;
+  line-height: .9;
+  letter-spacing: -.04em;
   font-variant-numeric: tabular-nums;
 }
-/* Verbindungslinie zwischen den Schritten (nur nebeneinander sinnvoll) */
-@media (min-width: 768px) {
-  .step:not(:last-child)::after {
-    content: "";
-    position: absolute;
-    top: 20px;
-    left: 56px;
-    right: -16px;
-    height: 1px;
-    background: var(--border);
-  }
-}
-.step h3 { font-size: 1.25rem; font-weight: 600; margin-bottom: 8px; }
-.step p { color: var(--text-muted); max-width: 34ch; text-wrap: pretty; }
-.feature p, .checklist li { text-wrap: pretty; }
+.step h3 { margin-bottom: 8px; font-size: 1.375rem; font-weight: 600; letter-spacing: -.015em; }
+.step p { max-width: 44ch; color: var(--text-muted); text-wrap: pretty; }
+.checklist li { text-wrap: pretty; }
 
 .trust {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 16px 40px;
-  margin: 64px 0 0;
-  padding: 32px 0 0;
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 24px 0 0;
   border-top: 1px solid var(--border);
   list-style: none;
 }
-.trust li { display: inline-flex; align-items: center; gap: 8px; font-size: .9375rem; font-weight: 500; }
-.trust .icon { width: 20px; height: 20px; color: var(--text-muted); }
+.trust li { display: flex; align-items: center; gap: 12px; font-size: .9375rem; font-weight: 500; }
+.trust .icon { width: 20px; height: 20px; color: var(--accent); }
 
 /* ---------------- 6. Finaler CTA ---------------- */
 
 .cta__panel {
-  /* Dunkle Flaeche in beiden Modi; Akzent lokal auf die helle Variante,
-     damit der Button auf dem dunklen Grund genug Kontrast hat. */
+  /* Dunkle Flaeche in beiden Modi, aber aus der Farbwelt (tiefer Ton der
+     Akzentfarbe) statt eines fremden Schwarz mitten in der hellen Seite.
+     Akzent lokal auf die helle Variante, damit der Button genug Kontrast hat. */
+  --cta-bg:       color-mix(in srgb, var(--col-rechts-head) 82%, #000);
   --accent:       var(--accent-on-dark);
   --accent-hover: var(--accent-on-dark-hover);
   --accent-soft:  color-mix(in srgb, var(--accent-on-dark) 20%, transparent);
   --accent-text:  var(--accent-on-dark-text);
-  padding: 64px 24px;
-  border-radius: var(--radius);
+  padding: 72px 24px;
+  border-radius: 20px;
   background:
-    radial-gradient(ellipse 60% 80% at 50% 120%, color-mix(in srgb, var(--accent-on-dark) 18%, transparent), transparent 70%),
-    #111111;
+    radial-gradient(ellipse 70% 90% at 50% 130%, color-mix(in srgb, var(--accent-on-dark) 26%, transparent), transparent 70%),
+    var(--cta-bg);
   color: #fafafa;
   text-align: center;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .cta__panel { background-color: #18181b; border: 1px solid var(--border); }
+  :root:not([data-theme="light"]) .cta__panel {
+    --cta-bg: color-mix(in srgb, var(--accent-on-dark) 10%, var(--surface));
+    border: 1px solid var(--border);
+  }
 }
+.cta__panel .btn:not(.btn--primary) { background: transparent; border-color: rgba(255, 255, 255, .35); color: #fafafa; }
+.cta__panel .btn:not(.btn--primary):hover:not(:disabled) { background: rgba(255, 255, 255, .1); }
 .cta__panel h2 {
   max-width: 20ch;
   margin: 0 auto 16px;
@@ -382,7 +523,7 @@ p { margin: 0; }
   letter-spacing: -.02em;
   text-wrap: balance;
 }
-.cta__panel p { max-width: 48ch; margin: 0 auto 32px; color: #a1a1aa; font-size: 1.125rem; }
+.cta__panel p { max-width: 48ch; margin: 0 auto 32px; color: rgba(250, 250, 250, .74); font-size: 1.125rem; text-wrap: pretty; }
 .cta__panel .btn:focus-visible { outline-color: #fafafa; }
 .cta__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 
@@ -434,6 +575,21 @@ p { margin: 0; }
 .legal__box ul { margin-top: 8px; }
 .legal__toc { columns: 2 16rem; column-gap: 32px; }
 .legal__toc li { break-inside: avoid; }
+
+/* ---------------- 404 ---------------- */
+
+.notfound { padding-top: 96px; padding-bottom: 128px; }
+.notfound__code { margin-bottom: 16px; color: var(--accent); font-size: .9375rem; font-weight: 600; }
+.notfound h1 {
+  max-width: 16ch;
+  margin-bottom: 16px;
+  font-size: clamp(2.25rem, 1.5rem + 3vw, 3.5rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -.03em;
+  text-wrap: balance;
+}
+.notfound__actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
 
 /* ---------------- Scroll-Animation ---------------- */
 /* Nur mit JS (Klasse .js am <html>), sonst bleibt alles sichtbar. */

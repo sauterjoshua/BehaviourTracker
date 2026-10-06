@@ -5,49 +5,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="robots" content="noindex, nofollow">
-  <!-- Statische Seite: keine Skripte, keine fremden Server. -->
+  <!-- Statische Seite: keine Skripte, keine fremden Server. Netlify liefert
+       sie unter der aufgerufenen Adresse aus (auch /a/b), daher absolute Pfade. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'">
-  <title>Impressum – BehaviourTracker</title>
-  <meta name="description" content="Impressum von BehaviourTracker – Anbieterkennzeichnung nach § 5 DDG und § 18 MStV.">
+  <title>Seite nicht gefunden – BehaviourTracker</title>
   <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f0f10" media="(prefers-color-scheme: dark)">
-  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="./fonts/plex-sans-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="./style.css">
-  <link rel="stylesheet" href="./landing.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/plex-sans-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/landing.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt springen</a>
 
   <header class="site-header">
     <div class="container site-header__inner">
-      <a class="brand" href="./">
+      <a class="brand" href="/">
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="brand-mark__a" x="3" y="17" width="7" height="12" rx="2"/><rect class="brand-mark__b" x="12.5" y="10" width="7" height="19" rx="2"/><rect class="brand-mark__c" x="22" y="3" width="7" height="26" rx="2"/></svg>
         BehaviourTracker
       </a>
-      <a class="btn btn--ghost site-header__login" href="app.html">Anmelden</a>
+      <a class="btn btn--ghost site-header__login" href="/app.html#/anmelden">Anmelden</a>
     </div>
   </header>
 
-  <main id="main" class="container legal">
-    <h1>Impressum</h1>
-    <p class="legal__meta">Hinweis zur Anbieterkennzeichnung</p>
-
-    <p>BehaviourTracker ist ein privates, nicht-kommerzielles Projekt ohne Werbung und ohne kostenpflichtige Leistungen. Die Seite dient ausschließlich persönlichen und familiären Zwecken und wird nicht öffentlich angeboten: Eine Registrierung ist nicht möglich, Zugänge werden nur persönlich vergeben.</p>
-    <p>Für solche Angebote besteht nach § 18 Abs. 1 Medienstaatsvertrag (MStV) keine Pflicht zur Anbieterkennzeichnung. Ansprechpartner ist der Betreiber, von dem du deinen Zugang erhalten hast.</p>
-    <p>Informationen zum Umgang mit personenbezogenen Daten stehen in der <a href="./datenschutz.html">Datenschutzerklärung</a>, die Regeln für die Nutzung der App in den <a href="./nutzungsbedingungen.html">Nutzungsbedingungen</a>.</p>
+  <main id="main" class="container notfound">
+    <p class="notfound__code">Fehler 404</p>
+    <h1>Diese Seite gibt es nicht.</h1>
+    <p class="lead">Vielleicht ist der Link veraltet oder unvollständig. Von hier aus geht es weiter:</p>
+    <div class="notfound__actions">
+      <a class="btn btn--primary btn--xl" href="/">Zur Startseite</a>
+      <a class="btn btn--xl" href="/app.html#/ausprobieren">Unterricht ausprobieren</a>
+      <a class="btn btn--xl btn--ghost" href="/app.html#/focus">Fokus-Wald</a>
+    </div>
   </main>
 
   <footer class="site-footer">
     <div class="container site-footer__inner">
-      <a class="brand" href="./">
+      <a class="brand" href="/">
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="brand-mark__a" x="3" y="17" width="7" height="12" rx="2"/><rect class="brand-mark__b" x="12.5" y="10" width="7" height="19" rx="2"/><rect class="brand-mark__c" x="22" y="3" width="7" height="26" rx="2"/></svg>
         BehaviourTracker
       </a>
       <nav aria-label="Rechtliches">
-        <a href="./impressum.html" aria-current="page">Impressum</a>
-        <a href="./datenschutz.html">Datenschutz</a>
-        <a href="./nutzungsbedingungen.html">Nutzungsbedingungen</a>
+        <a href="/impressum.html">Impressum</a>
+        <a href="/datenschutz.html">Datenschutz</a>
+        <a href="/nutzungsbedingungen.html">Nutzungsbedingungen</a>
       </nav>
       <p class="site-footer__copy">© 2026 BehaviourTracker</p>
     </div>

@@ -17,7 +17,7 @@
   <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f0f10" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="./fonts/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./fonts/plex-sans-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./landing.css">
   <script src="./landing.js"></script>
@@ -101,8 +101,8 @@
             <dd>Der Fokus-Wald misst nur die Lautstärke, direkt im Browser.</dd>
           </div>
           <div class="fact reveal" style="--d: 3">
-            <dt>100 % Browser</dt>
-            <dd>Keine Installation – läuft auf Tablet, Laptop und am Beamer.</dd>
+            <dt>0 Apps</dt>
+            <dd>Nichts zu installieren – läuft im Browser auf Tablet, Laptop und am Beamer.</dd>
           </div>
         </dl>
       </div>
@@ -143,21 +143,65 @@
           <h2 id="features-title">Gebaut für den echten Unterrichtsalltag.</h2>
           <p class="section__lead">Drei Werkzeuge, die dir in der Stunde Arbeit abnehmen statt welche zu machen.</p>
         </div>
-        <ul class="features">
-          <li class="feature reveal">
-            <span class="feature__icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg></span>
-            <h3>Feedback ohne Unterbrechung</h3>
-            <p>Ein Tipp auf den Namen genügt: Die Klasse sieht sofort, wer gut dabei ist, und du unterrichtest einfach weiter.</p>
+        <!-- Bento statt drei gleicher Karten: jede Funktion mit einem kleinen,
+             nachgebauten Ausschnitt der App (nur Deko, daher aria-hidden). -->
+        <ul class="bento">
+          <li class="tile tile--tap reveal">
+            <div class="tile__text">
+              <h3>Feedback ohne Unterbrechung</h3>
+              <p>Ein Tipp auf den Namen genügt: Die Klasse sieht sofort, wer gut dabei ist, und du unterrichtest einfach weiter.</p>
+            </div>
+            <div class="demo-tap" aria-hidden="true">
+              <div class="demo-tap__tile demo-tap__tile--touch" data-s="links"><b>Ilyas</b><span>Start</span></div>
+              <svg class="demo-tap__arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              <div class="demo-tap__tile" data-s="mitte"><b>Ilyas</b><span>gut</span></div>
+              <svg class="demo-tap__arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              <div class="demo-tap__tile" data-s="rechts"><b>Ilyas</b><span>großartig</span></div>
+            </div>
+            <p class="tile__note">Rechte Hälfte antippen: eine Stufe weiter. Linke Hälfte: eine zurück.</p>
           </li>
-          <li class="feature reveal" style="--d: 1">
-            <span class="feature__icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
-            <h3>Gutes Arbeiten im Blick</h3>
-            <p>Für jede Person siehst du, wie lange sie gut oder großartig gearbeitet hat – je Stunde und übers Schuljahr, ohne Rangliste.</p>
+
+          <li class="tile tile--times reveal" style="--d: 1">
+            <div class="tile__text">
+              <h3>Gutes Arbeiten im Blick</h3>
+              <p>Für jede Person siehst du, wie lange sie gut oder großartig gearbeitet hat – je Stunde und übers Schuljahr, ohne Rangliste.</p>
+            </div>
+            <div class="demo-times" aria-hidden="true">
+              <p class="demo-times__who">Ilyas <span>· Auswertung</span></p>
+              <div class="demo-times__stats">
+                <div data-s="mitte"><b>4 h 12 min</b><span>Du arbeitest gut</span></div>
+                <div data-s="rechts"><b>1 h 37 min</b><span>Du arbeitest großartig</span></div>
+              </div>
+              <table>
+                <tr><td>Mathematik <span>01.10.</span></td><td>23 min</td><td>9 min</td></tr>
+                <tr><td>Mathematik <span>29.09.</span></td><td>31 min</td><td>4 min</td></tr>
+                <tr><td>Physik <span>26.09.</span></td><td>17 min</td><td>12 min</td></tr>
+              </table>
+            </div>
           </li>
-          <li class="feature reveal" style="--d: 2">
-            <span class="feature__icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 6 11h3l-4 6h14l-4-6h3z"/><path d="M12 17v4"/></svg></span>
-            <h3>Ruhe, die man wachsen sieht</h3>
-            <p>Bei leiser Stillarbeit wächst im Fokus-Wald ein Baum – und die Klasse sammelt gemeinsam für eine Belohnung.</p>
+
+          <li class="tile tile--forest reveal" style="--d: 2">
+            <div class="tile__text">
+              <h3>Ruhe, die man wachsen sieht</h3>
+              <p>Bei leiser Stillarbeit wächst im Fokus-Wald ein Baum – und die Klasse sammelt gemeinsam für eine Belohnung.</p>
+              <a class="tile__link" href="app.html#/focus">Fokus-Wald ansehen <span aria-hidden="true">→</span></a>
+            </div>
+            <div class="demo-forest" aria-hidden="true">
+              <div class="demo-forest__progress"><i></i></div>
+              <div class="demo-forest__top">
+                <span class="demo-forest__time">4:05</span>
+                <span class="demo-forest__goal">Buche · Ziel 25 min</span>
+              </div>
+              <!-- Buche wie in der App (TREE_SHAPES.buche in app.js) -->
+              <svg class="demo-forest__tree" viewBox="0 0 200 240">
+                <ellipse cx="100" cy="223" rx="46" ry="5" fill="rgba(0,0,0,.18)"/>
+                <path d="M92 222 C94 194 95 168 96 128 L104 128 C105 168 106 194 108 222 Z" fill="#8b8a83"/>
+                <g fill="none" stroke="#8b8a83" stroke-width="5" stroke-linecap="round"><path d="M98 164 C86 154 72 146 58 138"/><path d="M102 158 C114 148 128 142 142 136"/><path d="M99 138 C92 124 86 112 80 98"/><path d="M101 136 C108 122 114 110 120 98"/></g>
+                <circle cx="100" cy="124" r="26" fill="#2e7d32"/><circle cx="64" cy="128" r="22" fill="#388e3c"/><circle cx="136" cy="128" r="22" fill="#256d2a"/><circle cx="44" cy="108" r="20" fill="#2e7d32"/><circle cx="156" cy="108" r="20" fill="#388e3c"/><circle cx="74" cy="104" r="28" fill="#256d2a"/><circle cx="126" cy="104" r="28" fill="#2e7d32"/><circle cx="100" cy="96" r="32" fill="#388e3c"/><circle cx="58" cy="80" r="22" fill="#256d2a"/><circle cx="142" cy="80" r="22" fill="#2e7d32"/><circle cx="82" cy="66" r="28" fill="#388e3c"/><circle cx="118" cy="66" r="28" fill="#256d2a"/><circle cx="100" cy="44" r="24" fill="#2e7d32"/>
+              </svg>
+              <p class="demo-forest__status">Ruhig – der Baum wächst</p>
+              <div class="demo-forest__meter"><i></i></div>
+            </div>
           </li>
         </ul>
       </div>
@@ -165,26 +209,32 @@
 
     <!-- 5. So funktioniert's -->
     <section class="section section--alt" id="so-gehts" aria-labelledby="steps-title">
-      <div class="container">
-        <div class="section__head reveal">
+      <div class="container howto">
+        <div class="howto__intro reveal">
           <h2 id="steps-title">In drei Schritten startklar.</h2>
           <p class="section__lead">Keine Schulung, kein Handbuch. Wenn du eine Klassenliste hast, kannst du loslegen.</p>
         </div>
         <ol class="steps">
           <li class="step reveal">
             <span class="step__num" aria-hidden="true">1</span>
-            <h3>Klasse anlegen</h3>
-            <p>Namen einmal eintragen – mehr Vorbereitung braucht es nicht.</p>
+            <div>
+              <h3>Klasse anlegen</h3>
+              <p>Namen einmal eintragen – mehr Vorbereitung braucht es nicht.</p>
+            </div>
           </li>
           <li class="step reveal" style="--d: 1">
             <span class="step__num" aria-hidden="true">2</span>
-            <h3>Unterricht starten</h3>
-            <p>Kanban oder sortierte Ansicht wählen und während der Stunde einfach antippen.</p>
+            <div>
+              <h3>Unterricht starten</h3>
+              <p>Kanban oder sortierte Ansicht wählen und während der Stunde einfach antippen.</p>
+            </div>
           </li>
           <li class="step reveal" style="--d: 2">
             <span class="step__num" aria-hidden="true">3</span>
-            <h3>Auswerten</h3>
-            <p>Nach der Stunde siehst du pro Person, wie lange sie gut oder großartig gearbeitet hat.</p>
+            <div>
+              <h3>Auswerten</h3>
+              <p>Nach der Stunde siehst du pro Person, wie lange sie gut oder großartig gearbeitet hat.</p>
+            </div>
           </li>
         </ol>
         <ul class="trust reveal">
